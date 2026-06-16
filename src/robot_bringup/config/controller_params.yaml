@@ -1,28 +1,17 @@
-# Visual Servo Controller Parameters
-
-# Robot type: "serial" (12-DOF, Vx+Vy+Wz) or "parallel" (8-DOF, Vx+Wz)
-robot_type: "serial"
-
-# ----- Serial Leg Gains (3-DOF control) -----
-serial:
-  kp_dist: 0.5    # Proportional gain for distance (z-axis)
-  kp_x: 0.3       # Proportional gain for lateral offset (x-axis)
-  kp_yaw: 1.0     # Proportional gain for yaw error
-
-# ----- Parallel Leg Gains (2-DOF control, ALIGN->APPROACH) -----
-parallel:
-  kp_yaw: 1.0                # Yaw correction gain
-  kp_x: 0.4                  # Lateral alignment gain
-  kp_dist: 0.3               # Distance gain during approach
-  align_threshold: 0.05      # Lateral alignment threshold (meters)
-  align_yaw_threshold: 0.1   # Yaw alignment threshold (radians)
-
-# ----- Shared Parameters -----
-target_distance: 0.5   # Default stop distance (meters), overridden by mission
-
-# Velocity limits
-max_linear_vel: 0.2    # Maximum linear velocity (m/s)
-max_angular_vel: 0.5   # Maximum angular velocity (rad/s)
-
-# Controller enable (toggled by mission_manager)
-enable: true
+/**:
+  ros__parameters:
+    robot_type: "serial"
+    serial:
+      kp_dist: 0.5
+      kp_x: 0.3
+      kp_yaw: 1.0
+    parallel:
+      kp_yaw: 1.0
+      kp_x: 0.4
+      kp_dist: 0.3
+      align_threshold: 0.05
+      align_yaw_threshold: 0.1
+    target_distance: 0.5
+    max_linear_vel: 0.2
+    max_angular_vel: 0.5
+    enable: true

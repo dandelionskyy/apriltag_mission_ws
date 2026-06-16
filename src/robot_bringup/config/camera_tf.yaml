@@ -1,12 +1,11 @@
-# Static transform from base_link to camera_link
-# base_link: robot base frame (projected to ground)
-# camera_link: RealSense D455 camera frame
-camera_tf:
-  translation:
-    x: 0.18    # Camera mounted 18cm forward from base center
-    y: 0.0     # Centered laterally
-    z: 0.25    # Camera height above ground (meters)
-  rotation:
-    roll: 0.0       # radians — no roll tilt
-    pitch: 0.0      # radians — camera faces straight forward
-    yaw: 0.0        # radians — no yaw offset
+/**:
+  ros__parameters:
+    camera_tf:
+      translation:
+        x: 0.18
+        y: 0.0
+        z: 0.25
+      rotation:
+        roll: 0.0
+        pitch: 0.0
+        yaw: 0.0

@@ -206,11 +206,9 @@ class MissionManagerNode(LifecycleNode):
     # ===================================================================
 
     def _declare_params(self):
-        self.declare_parameter('missions', [
-            {'mission_id': 1, 'tag_id': 0, 'stop_distance': 0.8},
-            {'mission_id': 2, 'tag_id': 1, 'stop_distance': 1.0},
-            {'mission_id': 3, 'tag_id': 2, 'stop_distance': 0.6},
-        ])
+        # missions 不走 ROS2 参数系统（嵌套结构不支持 --params-file），
+        # 改用 missions_file 传路径，on_configure 时直接用 yaml.safe_load 读
+        self.declare_parameter('missions_file', '')
         self.declare_parameter('prepare_distance_offset', 0.3)
         self.declare_parameter('tag_timeout', 2.0)
         self.declare_parameter('search_yaw_rate', 0.3)
@@ -222,8 +220,30 @@ class MissionManagerNode(LifecycleNode):
         self.declare_parameter('loop_rate', 50.0)
 
     def _load_missions(self):
-        """从参数中解析任务列表，兼容 dict 和 list 两种 YAML 格式"""
-        raw = self.get_parameter('missions').value
+        """直接从 YAML 文件加载任务列表，绕过 ROS2 参数系统"""
+        import yaml, os
+        path = self.get_parameter('missions_file').value
+        if not path or not os.path.exists(path):
+            self.get_logger().error(f'missions_file 不存在: {path}')
+            return []
+
+        with open(path, 'r') as f:
+            data = yaml.safe_load(f)
+
+        # 兼容两种格式: 带 ros__parameters 包装的 和 裸列表的
+        raw = None
+        if isinstance(data, dict):
+            # 尝试穿透 /** / ros__parameters / missions
+            for node_key in data:
+                node_data = data[node_key]
+                if isinstance(node_data, dict) and 'ros__parameters' in node_data:
+                    raw = node_data['ros__parameters'].get('missions')
+                    break
+        if raw is None and isinstance(data, list):
+            raw = data
+        if raw is None:
+            raw = data.get('missions', []) if isinstance(data, dict) else []
+
         result = []
         for m in raw:
             if isinstance(m, dict):
@@ -231,12 +251,6 @@ class MissionManagerNode(LifecycleNode):
                     'mission_id':    int(m.get('mission_id', 0)),
                     'tag_id':        int(m.get('tag_id', 0)),
                     'stop_distance': float(m.get('stop_distance', 0.5)),
-                })
-            elif isinstance(m, (list, tuple)):
-                result.append({
-                    'mission_id':    int(m[0]) if len(m) > 0 else 0,
-                    'tag_id':        int(m[1]) if len(m) > 1 else 0,
-                    'stop_distance': float(m[2]) if len(m) > 2 else 0.5,
                 })
         return result
 

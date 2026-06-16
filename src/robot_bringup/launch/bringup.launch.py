@@ -18,7 +18,7 @@ from launch.actions import (
 )
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, LifecycleNode
-from launch_ros.subscriptions import FindPackageShare
+from launch_ros.substitutions import FindPackageShare
 
 from lifecycle_msgs.srv import ChangeState
 from lifecycle_msgs.msg import Transition
@@ -104,13 +104,18 @@ def generate_launch_description():
     )
 
     # -- 节点 3: 任务管理器 (LifecycleNode) --
+    # missions.yaml 不用 ROS2 --params-file 机制加载（嵌套结构不兼容），
+    # 改为通过 missions_file 参数传路径，节点内部用 yaml.safe_load 读取
     mission = LifecycleNode(
         package='mission_manager',
         executable='mission_node',
         name='mission_manager',
         namespace='',
         output='screen',
-        parameters=[cfg('missions.yaml'), cfg('mission_params.yaml')],
+        parameters=[
+            cfg('mission_params.yaml'),
+            {'missions_file': cfg('missions.yaml')},
+        ],
     )
 
     # -- 生命周期助手: 延迟 3 秒后自动 configure + activate --

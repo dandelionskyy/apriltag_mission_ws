@@ -1,29 +1,11 @@
-# Mission Manager State Machine Parameters
-
-# Distance offset added to stop_distance to compute prepare_distance
-# prepare_distance = stop_distance + prepare_distance_offset
-prepare_distance_offset: 0.3
-
-# Time without tag detection before "tag lost" triggers (seconds)
-tag_timeout: 2.0
-
-# Angular velocity during SEARCH_TAG state (rad/s)
-search_yaw_rate: 0.3
-
-# Constant forward velocity during BLIND_APPROACH (m/s)
-blind_vx: 0.1
-
-# Maximum duration for blind approach (seconds, safety limit)
-blind_approach_timeout: 10.0
-
-# Yaw correction gain during blind approach
-kp_yaw: 0.5
-
-# Maximum angular velocity during blind approach yaw correction (rad/s)
-max_angular_vel: 0.5
-
-# How long to hold the mission signal (seconds)
-signal_duration: 1.0
-
-# State machine evaluation rate (Hz)
-loop_rate: 50.0
+/**:
+  ros__parameters:
+    prepare_distance_offset: 0.3
+    tag_timeout: 2.0
+    search_yaw_rate: 0.3
+    blind_vx: 0.1
+    blind_approach_timeout: 10.0
+    kp_yaw: 0.5
+    max_angular_vel: 0.5
+    signal_duration: 1.0
+    loop_rate: 50.0
