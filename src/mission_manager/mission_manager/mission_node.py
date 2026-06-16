@@ -97,6 +97,7 @@ class MissionManagerNode(LifecycleNode):
 
         # 日志去重
         self._last_state = None
+        self._last_action = None
 
     # ===================================================================
     # LifecycleNode 回调
@@ -302,8 +303,9 @@ class MissionManagerNode(LifecycleNode):
             self._last_state = self.sm.state
 
         action = r.get('action', '')
-        if action:
+        if action and action != self._last_action:
             self.get_logger().info(f'  → {action}')
+            self._last_action = action
 
         # -- 速度指令 (只在伺服关闭时发，避免和 servo 冲突) --
         enable_servo = bool(r.get('enable_servo', False))
