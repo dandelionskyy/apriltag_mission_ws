@@ -131,7 +131,8 @@ class VisualServoNode(Node):
                 self.get_logger().info(f'target_distance → {self.target_dist}')
                 if self.robot_type == 'parallel':
                     self.law.reset()
-        return True
+        from rcl_interfaces.msg import SetParametersResult
+        return SetParametersResult(successful=True)
 
     # -------------------------------------------------------------------
     # 主逻辑

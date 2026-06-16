@@ -227,7 +227,8 @@ class AprilTagDetectorNode(Node):
                 self.get_logger().info(
                     f'target_tag_id 已更新为 {self.target_tag_id}'
                 )
-        return True
+        from rcl_interfaces.msg import SetParametersResult
+        return SetParametersResult(successful=True)
 
     # -------------------------------------------------------------------
     # TF 广播
