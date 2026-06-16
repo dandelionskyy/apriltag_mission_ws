@@ -8,11 +8,14 @@ AprilTag 检测节点。
 """
 
 import math
+import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, Point
+from visualization_msgs.msg import Marker, MarkerArray
+from std_msgs.msg import ColorRGBA
 from tf2_ros import StaticTransformBroadcaster
 from cv_bridge import CvBridge
 from apriltag_interfaces.msg import TagPose, TagDetection, TagDetectionArray
@@ -154,6 +157,9 @@ class AprilTagDetectorNode(Node):
         self.tag_detections_pub = self.create_publisher(
             TagDetectionArray, '/tag_detections', 10
         )
+        # 可视化调试话题
+        self.debug_image_pub = self.create_publisher(Image, '/tag_detections/debug_image', 10)
+        self.marker_pub = self.create_publisher(MarkerArray, '/tag_detections/markers', 10)
 
         # -- 订阅者 --
         image_topic = self.get_parameter('image_topic').value
@@ -281,15 +287,17 @@ class AprilTagDetectorNode(Node):
 
     def _on_image(self, msg):
         """
-        图像回调：转灰度图 → 检测 Tag → 发布结果
+        图像回调：转灰度图 → 检测 Tag → 发布结果 + 可视化
 
         对每个检测到的 Tag，用 pupil_apriltags 返回的 pose_R / pose_t
         构建 geometry_msgs/Pose，发布到 /tag_pose (仅目标 Tag)
         和 /tag_detections (全部 Tag)。
+        同时发布标注图像 (/tag_detections/debug_image) 和 3D 标记。
         """
-        # 1. 转灰度图
+        # 1. 转灰度图 (用于检测) + 保留彩色图 (用于绘制)
         try:
             gray = self.bridge.imgmsg_to_cv2(msg, desired_encoding='mono8')
+            color = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except Exception as e:
             self.get_logger().error(f'cv_bridge 转换失败: {e}')
             return
@@ -310,19 +318,36 @@ class AprilTagDetectorNode(Node):
         if not tags:
             empty = TagDetectionArray(header=msg.header, detections=[])
             self.tag_detections_pub.publish(empty)
+            # 发空白标注图
+            debug_img = self.bridge.cv2_to_imgmsg(color, encoding='bgr8')
+            debug_img.header = msg.header
+            self.debug_image_pub.publish(debug_img)
+            # 清除标记
+            self.marker_pub.publish(MarkerArray())
             return
 
         # 4. 遍历检测结果
         detections = []
-        best_pose = None          # 目标 Tag 的位姿 (选最近的)
+        best_pose = None
         best_z = float('inf')
+        marker_array = MarkerArray()
 
-        for tag in tags:
-            # 构建单个 Tag 的位姿消息
+        for i, tag in enumerate(tags):
+            # --- 绘制标注图像 ---
+            if tag.corners is not None and len(tag.corners) == 4:
+                pts = np.array(tag.corners, dtype=np.int32)
+                # 目标 Tag 用绿色粗框，其他用蓝色细框
+                is_target = (self.target_tag_id < 0 or tag.tag_id == self.target_tag_id)
+                clr = (0, 255, 0) if is_target else (255, 0, 0)
+                thick = 3 if is_target else 1
+                cv2.polylines(color, [pts], True, clr, thick)
+                # 写 Tag ID
+                cv2.putText(color, f'ID:{tag.tag_id}', (pts[0][0], pts[0][1] - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, clr, 2)
+
+            # --- 构建 TagPose ---
             pose_msg = TagPose()
             pose_msg.tag_id = tag.tag_id
-
-            # pose_t: 相机坐标系下的平移 [x_right, y_down, z_forward]
             pose_msg.pose.position.x = float(tag.pose_t[0])
             pose_msg.pose.position.y = float(tag.pose_t[1])
             pose_msg.pose.position.z = float(tag.pose_t[2])
@@ -333,7 +358,40 @@ class AprilTagDetectorNode(Node):
             pose_msg.pose.orientation.z = qz
             pose_msg.pose.orientation.w = qw
 
-            # 构建检测记录 (用于 /tag_detections)
+            # --- 3D 标记 (箭头) ---
+            marker = Marker()
+            marker.header.frame_id = 'camera_link'
+            marker.header.stamp = msg.header.stamp
+            marker.ns = 'apriltags'
+            marker.id = tag.tag_id
+            marker.type = Marker.ARROW
+            marker.action = Marker.ADD
+            marker.pose = pose_msg.pose
+            marker.scale.x = 0.08   # 箭头长度
+            marker.scale.y = 0.015  # 轴宽
+            marker.scale.z = 0.015
+            is_tgt = (self.target_tag_id < 0 or tag.tag_id == self.target_tag_id)
+            marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0) if is_tgt \
+                else ColorRGBA(r=0.0, g=0.5, b=1.0, a=0.7)
+            marker_array.markers.append(marker)
+
+            # --- 文本标记 (显示 Tag ID 和距离) ---
+            text_marker = Marker()
+            text_marker.header.frame_id = 'camera_link'
+            text_marker.header.stamp = msg.header.stamp
+            text_marker.ns = 'tag_labels'
+            text_marker.id = tag.tag_id
+            text_marker.type = Marker.TEXT_VIEW_FACING
+            text_marker.action = Marker.ADD
+            text_marker.pose.position.x = float(tag.pose_t[0])
+            text_marker.pose.position.y = float(tag.pose_t[1]) + 0.06
+            text_marker.pose.position.z = float(tag.pose_t[2])
+            text_marker.scale.z = 0.05  # 字高
+            text_marker.text = f'ID:{tag.tag_id} {float(tag.pose_t[2]):.2f}m'
+            text_marker.color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
+            marker_array.markers.append(text_marker)
+
+            # --- 检测记录 ---
             det = TagDetection()
             det.tag_id = tag.tag_id
             if tag.corners is not None and len(tag.corners) == 4:
@@ -343,17 +401,26 @@ class AprilTagDetectorNode(Node):
             det.pose = pose_msg.pose
             detections.append(det)
 
-            # 筛选目标 Tag (匹配 target_tag_id，取最近的那个)
+            # 筛选目标 Tag
             if self.target_tag_id < 0 or tag.tag_id == self.target_tag_id:
                 z = float(tag.pose_t[2])
                 if z < best_z:
                     best_z = z
                     best_pose = pose_msg
 
-        # 5. 发布全部检测结果
+        # 5. 发布结果
         self.tag_detections_pub.publish(
             TagDetectionArray(header=msg.header, detections=detections)
         )
+        self.marker_pub.publish(marker_array)
+
+        # 标注图像加一行状态文字
+        if best_pose is not None:
+            cv2.putText(color, f'TARGET: ID={best_pose.tag_id} z={best_z:.2f}m',
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        debug_img = self.bridge.cv2_to_imgmsg(color, encoding='bgr8')
+        debug_img.header = msg.header
+        self.debug_image_pub.publish(debug_img)
 
         # 6. 发布目标 Tag 的位姿
         if best_pose is not None:
