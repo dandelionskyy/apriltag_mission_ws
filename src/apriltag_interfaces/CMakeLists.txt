@@ -15,6 +15,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MissionSignal.msg"
   "msg/TagDetection.msg"
   "msg/TagDetectionArray.msg"
+  "srv/TriggerMission.srv"
   DEPENDENCIES geometry_msgs std_msgs
 )
 

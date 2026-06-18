@@ -1,0 +1,9 @@
+# 任务触发服务 — 带应答
+# mission_manager 到达目标后调用此服务通知外部控制板
+
+int32 mission_id     # 任务编号
+int32 tag_id         # 触发该任务的 Tag ID
+float32 distance     # 到达时的测量距离 (m)
+---
+bool success         # 外部控制板是否成功接收
+string message       # 应答消息 (用于调试)

@@ -23,7 +23,8 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Imu
 from rcl_interfaces.srv import SetParameters
 from rcl_interfaces.msg import Parameter as ParamMsg, ParameterType, ParameterValue
-from apriltag_interfaces.msg import TagPose, MissionSignal
+from apriltag_interfaces.msg import TagPose
+from apriltag_interfaces.srv import TriggerMission
 from .state_machine import MissionStateMachine
 
 try:
@@ -80,11 +81,15 @@ class MissionManagerNode(LifecycleNode):
         self._tag_new = False
         self._imu_yaw = 0.0
 
-        # 发布者 & 订阅者
+        # 发布者 & 订阅者 & 服务客户端
         self._pub_cmd = None
-        self._pub_signal = None
+        self._cli_trigger = None     # 调用外部控制板的 TriggerMission 服务
         self._sub_tag = None
         self._sub_imu = None
+
+        # 服务调用状态 (避免每个循环周期都调)
+        self._pending_signal = None   # 待发送的 (mission_id, tag_id, distance)
+        self._signal_sent = False     # 本段信号是否已发送成功
 
         # 远程参数客户端
         self._cli_detector = None          # → apriltag_detector/set_parameters
@@ -136,8 +141,10 @@ class MissionManagerNode(LifecycleNode):
 
         # -- 发布者 --
         self._pub_cmd = self.create_lifecycle_publisher(Twist, '/cmd_vel', 10)
-        self._pub_signal = self.create_lifecycle_publisher(
-            MissionSignal, '/mission_signal', 10
+
+        # -- 服务客户端 (调用外部控制板) --
+        self._cli_trigger = self.create_client(
+            TriggerMission, '/mission_trigger'
         )
 
         # -- 订阅者 --
@@ -172,6 +179,8 @@ class MissionManagerNode(LifecycleNode):
         self._cache_tag_id = None
         self._cache_enable = None
         self._cache_dist = None
+        self._pending_signal = None
+        self._signal_sent = False
 
         hz = self.sm.p.get('loop_rate', 50.0)
         self._timer = self.create_timer(1.0 / hz, self._loop)
@@ -196,6 +205,7 @@ class MissionManagerNode(LifecycleNode):
         self.sm = None
         self._cli_detector = None
         self._cli_servo = None
+        self._cli_trigger = None
         return TransitionCallbackReturn.SUCCESS
 
     def on_shutdown(self, state: State) -> TransitionCallbackReturn:
@@ -331,19 +341,13 @@ class MissionManagerNode(LifecycleNode):
             self._set_remote(self._cli_servo, [('target_distance', tdist)])
             self._cache_dist = tdist
 
-        # -- 发布任务信号 --
+        # -- 发送任务信号 (服务调用, 有应答确认) --
         sig = r.get('mission_signal')
-        if sig and self._pub_signal and self._pub_signal.is_activated:
-            msg = MissionSignal()
-            msg.mission_id = int(sig[0])
-            msg.tag_id     = int(sig[1])
-            msg.distance   = float(sig[2])
-            self._pub_signal.publish(msg)
-            self.get_logger().info(
-                f'*** 任务信号已发送 *** '
-                f'mission_id={msg.mission_id}, tag_id={msg.tag_id}, '
-                f'distance={msg.distance:.3f}m'
-            )
+        if sig is not None and not self._signal_sent:
+            self._pending_signal = sig
+            self._call_trigger_service()
+        elif sig is None:
+            self._signal_sent = False    # 重置, 等下一个信号
 
     # ===================================================================
     # 辅助
@@ -373,6 +377,46 @@ class MissionManagerNode(LifecycleNode):
             client.call_async(req)
         except Exception:
             pass
+
+    def _call_trigger_service(self):
+        """
+        调用外部控制板的 /mission_trigger 服务。
+
+        成功 → 打印对方应答消息，标记已发送
+        失败 → 下个循环周期自动重试
+        """
+        if self._cli_trigger is None or self._pending_signal is None:
+            return
+
+        if not self._cli_trigger.wait_for_service(timeout_sec=0.05):
+            return   # 服务还没起来, 下个周期重试
+
+        req = TriggerMission.Request()
+        req.mission_id = int(self._pending_signal[0])
+        req.tag_id     = int(self._pending_signal[1])
+        req.distance   = float(self._pending_signal[2])
+
+        future = self._cli_trigger.call_async(req)
+
+        # 轮询等待响应 (最多 1 秒)
+        start = time.monotonic()
+        while not future.done():
+            if time.monotonic() - start > 1.0:
+                self.get_logger().warn('服务调用超时, 下周期重试')
+                return
+            rclpy.spin_once(self, timeout_sec=0.02)
+
+        resp = future.result()
+        if resp is not None and resp.success:
+            self._signal_sent = True
+            self.get_logger().info(
+                f'*** 任务触发成功 *** '
+                f'mission_id={req.mission_id}, tag_id={req.tag_id}, '
+                f'distance={req.distance:.3f}m | 应答: {resp.message}'
+            )
+        else:
+            msg = resp.message if resp else '无响应'
+            self.get_logger().warn(f'任务触发被拒绝: {msg}, 下周期重试')
 
     def _stop_robot(self):
         """发零速度"""

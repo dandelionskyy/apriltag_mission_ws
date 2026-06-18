@@ -6,13 +6,13 @@
     quad_sigma: 0.0
     refine_edges: 1
     decode_sharpening: 0.25
-    debug: 0
-    tag_size: 0.16
+    debug: 1
+    tag_size: 0.19
     camera_intrinsics:
       fx: 615.0
       fy: 615.0
       cx: 320.0
       cy: 240.0
     use_camera_info_topic: true
-    image_topic: "/camera/color/image_raw"
+    image_topic: "/camera/camera/color/image_raw"
     target_tag_id: -1

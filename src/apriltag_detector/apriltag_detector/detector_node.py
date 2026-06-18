@@ -170,7 +170,7 @@ class AprilTagDetectorNode(Node):
 
         if self.use_camera_info:
             self.camera_info_sub = self.create_subscription(
-                CameraInfo, '/camera/color/camera_info',
+                CameraInfo, '/camera/camera/color/camera_info',
                 self._on_camera_info, 10
             )
             self.get_logger().info('订阅 CameraInfo，内参将从话题自动获取')
