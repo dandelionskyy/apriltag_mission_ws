@@ -88,7 +88,7 @@ class MissionManagerNode(LifecycleNode):
         self._sub_imu = None
 
         # 服务调用状态 (避免每个循环周期都调)
-        self._pending_signal = None   # 待发送的 (mission_id, tag_id, distance)
+        self._pending_signal = None   # 待发送的 (mission_id, tag_id, distance, angle)
         self._signal_sent = False     # 本段信号是否已发送成功
 
         # 远程参数客户端
@@ -99,6 +99,7 @@ class MissionManagerNode(LifecycleNode):
         self._cache_tag_id = None
         self._cache_enable = None
         self._cache_dist   = None
+        self._cache_x      = None
 
         # 日志去重
         self._last_state = None
@@ -128,6 +129,22 @@ class MissionManagerNode(LifecycleNode):
             'max_angular_vel':         self.get_parameter('max_angular_vel').value,
             'signal_duration':         self.get_parameter('signal_duration').value,
             'loop_rate':              self.get_parameter('loop_rate').value,
+            # 转向
+            'turn_yaw_rate':           self.get_parameter('turn_yaw_rate').value,
+            'turn_tolerance':          self.get_parameter('turn_tolerance').value,
+            'turn_timeout':            self.get_parameter('turn_timeout').value,
+            'turn_settle_time':        self.get_parameter('turn_settle_time').value,
+            'turn_kp_yaw':             self.get_parameter('turn_kp_yaw').value,
+            # 航向修正
+            'correction_yaw_rate':     self.get_parameter('correction_yaw_rate').value,
+            'correction_tolerance':    self.get_parameter('correction_tolerance').value,
+            'correction_timeout':      self.get_parameter('correction_timeout').value,
+            'correction_kp_yaw':       self.get_parameter('correction_kp_yaw').value,
+            # 盲走前进
+            'forward_vx':              self.get_parameter('forward_vx').value,
+            'forward_timeout':         self.get_parameter('forward_timeout').value,
+            # IMU 滤波
+            'imu_filter_window':       self.get_parameter('imu_filter_window').value,
         }
 
         # -- 创建状态机 --
@@ -179,6 +196,7 @@ class MissionManagerNode(LifecycleNode):
         self._cache_tag_id = None
         self._cache_enable = None
         self._cache_dist = None
+        self._cache_x = None
         self._pending_signal = None
         self._signal_sent = False
 
@@ -229,6 +247,22 @@ class MissionManagerNode(LifecycleNode):
         self.declare_parameter('max_angular_vel', 0.5)
         self.declare_parameter('signal_duration', 1.0)
         self.declare_parameter('loop_rate', 50.0)
+        # 转向参数
+        self.declare_parameter('turn_yaw_rate', 0.5)
+        self.declare_parameter('turn_tolerance', 0.05)
+        self.declare_parameter('turn_timeout', 15.0)
+        self.declare_parameter('turn_settle_time', 0.3)
+        self.declare_parameter('turn_kp_yaw', 1.0)
+        # 航向修正参数
+        self.declare_parameter('correction_yaw_rate', 0.3)
+        self.declare_parameter('correction_tolerance', 0.04)
+        self.declare_parameter('correction_timeout', 10.0)
+        self.declare_parameter('correction_kp_yaw', 1.0)
+        # 盲走前进参数
+        self.declare_parameter('forward_vx', 0.15)
+        self.declare_parameter('forward_timeout', 30.0)
+        # IMU 滤波
+        self.declare_parameter('imu_filter_window', 20)
 
     def _load_missions(self):
         """直接从 YAML 文件加载任务列表，绕过 ROS2 参数系统"""
@@ -258,11 +292,20 @@ class MissionManagerNode(LifecycleNode):
         result = []
         for m in raw:
             if isinstance(m, dict):
-                result.append({
+                entry = {
                     'mission_id':    int(m.get('mission_id', 0)),
                     'tag_id':        int(m.get('tag_id', 0)),
                     'stop_distance': float(m.get('stop_distance', 0.5)),
-                })
+                }
+                # 可选字段: target_x, target_z
+                if 'target_x' in m:
+                    entry['target_x'] = float(m['target_x'])
+                if 'target_z' in m:
+                    entry['target_z'] = float(m['target_z'])
+                # 步骤列表 (向后兼容: 无 steps → 默认 [{approach}, {signal}])
+                if 'steps' in m:
+                    entry['steps'] = m['steps']
+                result.append(entry)
         return result
 
     # ===================================================================
@@ -303,12 +346,18 @@ class MissionManagerNode(LifecycleNode):
         # -- 日志：状态变化时打印 --
         if self.sm.state != self._last_state:
             info = self.sm.info()
+            tgt = f'z={info["target_z"]:.2f}m'
+            if abs(info['target_x']) > 0.01:
+                tgt += f' x={info["target_x"]:+.2f}m'
+            step_str = ''
+            if info['step_total'] > 0:
+                step_str = f' step={info["step_idx"]+1}/{info["step_total"]}({info["step_type"]})'
             self.get_logger().info(
                 f'[{info["state"]}] mission={info["mission_id"]} '
                 f'tag_id={info["target_tag_id"]} '
-                f'target={info["target_distance"]}m '
-                f'prepare={info["prepare_dist"]}m '
-                f'[{info["mission_idx"]+1}/{info["total"]}]'
+                f'target({tgt}) dist={info["target_distance"]:.2f}m '
+                f'prepare={info["prepare_dist"]:.2f}m '
+                f'[{info["mission_idx"]+1}/{info["total"]}]{step_str}'
             )
             self._last_state = self.sm.state
 
@@ -340,6 +389,11 @@ class MissionManagerNode(LifecycleNode):
         if self._cache_dist is None or abs(tdist - self._cache_dist) > 0.001:
             self._set_remote(self._cli_servo, [('target_distance', tdist)])
             self._cache_dist = tdist
+
+        tx = float(r['target_x'])
+        if self._cache_x is None or abs(tx - self._cache_x) > 0.001:
+            self._set_remote(self._cli_servo, [('target_x', tx)])
+            self._cache_x = tx
 
         # -- 发送任务信号 (服务调用, 有应答确认) --
         sig = r.get('mission_signal')
@@ -395,6 +449,7 @@ class MissionManagerNode(LifecycleNode):
         req.mission_id = int(self._pending_signal[0])
         req.tag_id     = int(self._pending_signal[1])
         req.distance   = float(self._pending_signal[2])
+        req.angle      = float(self._pending_signal[3]) if len(self._pending_signal) > 3 else 0.0
 
         future = self._cli_trigger.call_async(req)
 
@@ -412,7 +467,8 @@ class MissionManagerNode(LifecycleNode):
             self.get_logger().info(
                 f'*** 任务触发成功 *** '
                 f'mission_id={req.mission_id}, tag_id={req.tag_id}, '
-                f'distance={req.distance:.3f}m | 应答: {resp.message}'
+                f'distance={req.distance:.3f}m, angle={req.angle:.2f}rad | '
+                f'应答: {resp.message}'
             )
         else:
             msg = resp.message if resp else '无响应'

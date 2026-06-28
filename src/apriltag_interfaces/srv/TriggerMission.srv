@@ -4,6 +4,7 @@
 int32 mission_id     # 任务编号
 int32 tag_id         # 触发该任务的 Tag ID
 float32 distance     # 到达时的测量距离 (m)
+float32 angle        # 发信号时的当前 IMU 航向 (rad)
 ---
 bool success         # 外部控制板是否成功接收
 string message       # 应答消息 (用于调试)

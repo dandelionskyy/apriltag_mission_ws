@@ -9,3 +9,19 @@
     max_angular_vel: 0.5
     signal_duration: 1.0
     loop_rate: 50.0
+    # 转向
+    turn_yaw_rate: 0.5
+    turn_tolerance: 0.05
+    turn_timeout: 15.0
+    turn_settle_time: 0.3
+    turn_kp_yaw: 1.0
+    # 航向修正
+    correction_yaw_rate: 0.3
+    correction_tolerance: 0.04
+    correction_timeout: 10.0
+    correction_kp_yaw: 1.0
+    # 盲走前进
+    forward_vx: 0.15
+    forward_timeout: 30.0
+    # IMU 滤波
+    imu_filter_window: 20

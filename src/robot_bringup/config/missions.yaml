@@ -1,37 +1,168 @@
+# 任务序列 — 多步骤 mission
+#
+# 步骤类型:
+#   approach         - 走向 Tag (SEARCH→TRACK→PREPARE→STOP)
+#   turn             - IMU 精确转向, angle: 正=右转, 负=左转 (deg)
+#   signal           - 发 TriggerMission 服务给外部控制板
+#   forward          - 盲走前进, distance: 前进距离 (m)
+#   correct_heading  - AprilTag 航向修正, tag_id: 用于修正的 Tag
+#
+# 外部控制板根据 mission_id 查表决定障碍类型:
+#   mission_id=2 → HIGH_WALL, mission_id=3 → STAIR,
+#   mission_id=7 → SLOPE, 等
+
 missions:
+  # ---- 任务 1: 走向 tag_id=0, 在0.1m处停下, 左传90° ----
   - mission_id: 1
     tag_id: 0
-    stop_distance: 0.8
+    stop_distance: 0.1
+    steps:
+      - type: approach
+      - type: turn
+        angle: -90          # 左转 90°
+      - type: signal
+
+  # ---- 任务 2: 走向 tag_id=1, 在0.11m处停下, 高墙跳 (type=2) ----
   - mission_id: 2
     tag_id: 1
-    stop_distance: 1.0
+    stop_distance: 0.11
+    steps:
+      - type: approach
+      - type: signal
+
+  # ---- 任务 3: 走向 tag_id=2, 在0.12m处停下, 楼梯跳 (type=3) ----
   - mission_id: 3
     tag_id: 2
-    stop_distance: 0.6
+    stop_distance: 0.12
+    steps:
+      - type: approach
+      - type: signal
+
+  # ---- 任务 4: tag_id=3, 航向修正后面朝tag, 走到0.13m, 发mission ----
   - mission_id: 4
     tag_id: 3
-    stop_distance: 0.6
+    stop_distance: 0.13
+    steps:
+      - type: correct_heading
+        tag_id: 3
+      - type: approach
+      - type: signal
+
+  # ---- 任务 5: 左传90° → 面前是 tag_id=4, 走到0.14m → 左传90° ----
   - mission_id: 5
     tag_id: 4
-    stop_distance: 0.6
+    stop_distance: 0.14
+    steps:
+      - type: turn
+        angle: -90
+      - type: approach
+      - type: turn
+        angle: -90
+      - type: signal
+
+  # ---- 任务 6: tag_id=5 (后续加独立检测矫正), 走到0.14m → 左传90° ----
   - mission_id: 6
     tag_id: 5
-    stop_distance: 0.6
+    stop_distance: 0.14
+    steps:
+      - type: approach
+      - type: turn
+        angle: -90
+      - type: signal
+
+  # ---- 任务 7: tag_id=6, 走到0.15m → 右转135° (斜坡SLOPE) → 前进 ----
   - mission_id: 7
     tag_id: 6
-    stop_distance: 0.6
+    stop_distance: 0.15
+    steps:
+      - type: approach
+      - type: turn
+        angle: 135          # 右转 135°
+      - type: signal
+
+  # ---- 任务 8: tag_id=7, 朝目标点前进 ----
   - mission_id: 8
     tag_id: 7
     stop_distance: 0.6
+    steps:
+      - type: approach
+      - type: signal
+
+  # ---- 任务 9: tag_id=8, 0.16m处发mission (下蹲前进) ----
   - mission_id: 9
     tag_id: 8
-    stop_distance: 0.6
+    stop_distance: 0.16
+    steps:
+      - type: approach
+      - type: signal
+
+  # ---- 任务 10: tag_id=9, 0.17m处发mission (小跳) ----
   - mission_id: 10
     tag_id: 9
-    stop_distance: 0.6
+    stop_distance: 0.17
+    steps:
+      - type: approach
+      - type: signal
+
+  # ---- 任务 11: tag_id=10, 0.18m → 左传45° → 发mission(跳跃) → 再右转45° ----
   - mission_id: 11
     tag_id: 10
-    stop_distance: 0.6
+    stop_distance: 0.18
+    steps:
+      - type: approach
+      - type: turn
+        angle: -45          # 左转 45°
+      - type: signal        # 跳跃
+      - type: turn
+        angle: 45           # 右转 45°
+
+  # ---- 任务 12: tag_id=11, 0.19m → 跳跃 → 左传45° → 前进x米 → 右转90° → 面朝 tag_id=12 ----
   - mission_id: 12
     tag_id: 11
-    stop_distance: 0.6
+    stop_distance: 0.19
+    steps:
+      - type: approach
+      - type: signal        # 跳跃
+      - type: turn
+        angle: -45          # 左转 45°
+      - type: forward
+        distance: 1.0       # TODO: 调参确定前进距离
+      - type: turn
+        angle: 90           # 右转 90° → 面朝 tag_id=12
+      - type: signal
+
+  # ---- 任务 13: tag_id=12, 走到0.20m → 左转135° → 面朝 tag_id=13 ----
+  - mission_id: 13
+    tag_id: 12
+    stop_distance: 0.20
+    steps:
+      - type: approach
+      - type: turn
+        angle: -135         # 左转 135°
+      - type: signal
+
+  # ---- 任务 14: tag_id=13, 走到0.21m → 左传45° ----
+  - mission_id: 14
+    tag_id: 13
+    stop_distance: 0.21
+    steps:
+      - type: approach
+      - type: turn
+        angle: -45          # 左转 45°
+      - type: signal
+
+  # ---- 任务 15: tag_id=14, 走到0.22m → 右转90° → 前进3m → 左传90° → 一直前进 ----
+  - mission_id: 15
+    tag_id: 14
+    stop_distance: 0.22
+    steps:
+      - type: approach
+      - type: turn
+        angle: 90           # 右转 90°
+      - type: forward
+        distance: 3.0       # 前进 3m
+      - type: turn
+        angle: -90          # 左转 90°
+      - type: forward
+        distance: 10.0      # 一直前进 (调参)
+      - type: signal
