@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
-    robot_type: "serial"
+    robot_type: "parallel"
     serial:
       kp_dist: 0.5
       kp_x: 0.3
