@@ -64,13 +64,11 @@ def generate_launch_description():
         ],
     )
 
-    # -- 自动生命周期切换: configure → activate --
+    # -- 自动生命周期切换: configure(1) → activate(3) --
+    # 整数值来自 lifecycle_msgs.msg.Transition
     configure_evt = LifecycleTransition(
         lifecycle_node_names=['mission_manager'],
-        transition_ids=[
-            'TRANSITION_CONFIGURE',
-            'TRANSITION_ACTIVATE',
-        ],
+        transition_ids=[1, 3],  # CONFIGURE=1, ACTIVATE=3
     )
 
     # 延迟 3 秒等节点就绪后执行
