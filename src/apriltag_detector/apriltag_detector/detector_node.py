@@ -150,6 +150,16 @@ class AprilTagDetectorNode(Node):
         self.use_camera_info = self.get_parameter('use_camera_info_topic').value
         self._camera_info_logged = False
 
+        # 相机横向偏置 (镜头不在机器人中心)
+        self._cam_y_offset = float(
+            self.get_parameter('camera_tf.translation.y').value
+        )
+        if abs(self._cam_y_offset) > 0.001:
+            self.get_logger().info(
+                f'相机横向偏置: y={self._cam_y_offset:.3f}m '
+                f'(Tag x 坐标将自动补偿)'
+            )
+
         # 检测状态日志节流
         self._last_det_log_time = self.get_clock().now()
         self._det_log_interval = 2.0  # 每 2 秒打印一次检测状态
@@ -355,7 +365,9 @@ class AprilTagDetectorNode(Node):
             # --- 构建 TagPose ---
             pose_msg = TagPose()
             pose_msg.tag_id = tag.tag_id
-            pose_msg.pose.position.x = float(tag.pose_t[0])
+            # 补偿相机横向偏置: tag_x_corrected = tag_x_cam - cam_y_offset
+            # 镜头偏左(y>0) → Tag在相机偏右(x>0) → 减掉偏置后居中
+            pose_msg.pose.position.x = float(tag.pose_t[0]) - self._cam_y_offset
             pose_msg.pose.position.y = float(tag.pose_t[1])
             pose_msg.pose.position.z = float(tag.pose_t[2])
 
