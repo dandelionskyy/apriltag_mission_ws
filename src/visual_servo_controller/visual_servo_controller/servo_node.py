@@ -82,7 +82,7 @@ class VisualServoNode(Node):
         self.robot_type = robot_type
 
         # -- 发布 & 订阅 --
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel_nav', 10)
         self.tag_sub = self.create_subscription(
             TagPose, '/tag_pose', self._on_tag_pose, 10
         )

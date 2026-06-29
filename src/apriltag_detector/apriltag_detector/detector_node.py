@@ -148,6 +148,11 @@ class AprilTagDetectorNode(Node):
 
         self.target_tag_id = self.get_parameter('target_tag_id').value
         self.use_camera_info = self.get_parameter('use_camera_info_topic').value
+        self._camera_info_logged = False
+
+        # 检测状态日志节流
+        self._last_det_log_time = self.get_clock().now()
+        self._det_log_interval = 2.0  # 每 2 秒打印一次检测状态
 
         # -- CV Bridge --
         self.bridge = CvBridge()
@@ -271,7 +276,9 @@ class AprilTagDetectorNode(Node):
     # -------------------------------------------------------------------
 
     def _on_camera_info(self, msg):
-        """从 CameraInfo 话题更新相机内参"""
+        """从 CameraInfo 话题更新相机内参 (仅首次)"""
+        if self._camera_info_logged:
+            return
         self.fx = float(msg.k[0])
         self.fy = float(msg.k[4])
         self.cx = float(msg.k[2])
@@ -283,8 +290,7 @@ class AprilTagDetectorNode(Node):
             f'fx={self.fx:.1f}, fy={self.fy:.1f}, '
             f'cx={self.cx:.1f}, cy={self.cy:.1f}'
         )
-        # 只打印一次，之后不再订阅
-        self.use_camera_info = False
+        self._camera_info_logged = True
 
     def _on_image(self, msg):
         """
@@ -431,6 +437,26 @@ class AprilTagDetectorNode(Node):
                 f'检测到 {len(tags)} 个 Tag，但目标 ID '
                 f'(target_tag_id={self.target_tag_id}) 不在其中'
             )
+
+        # 7. 节流日志 — 终端可看检测状态
+        now = self.get_clock().now()
+        dt = (now - self._last_det_log_time).nanoseconds / 1e9
+        if dt >= self._det_log_interval:
+            if best_pose is not None:
+                self.get_logger().info(
+                    f'📷 检测: {len(tags)}个Tag | '
+                    f'目标ID={best_pose.tag_id} ✓ 距离={best_z:.2f}m'
+                )
+            else:
+                if tags:
+                    ids = [t.tag_id for t in tags]
+                    self.get_logger().info(
+                        f'📷 检测: {len(tags)}个Tag ID={ids} | '
+                        f'目标ID={self.target_tag_id} ✗ (未找到)'
+                    )
+                else:
+                    self.get_logger().info('📷 检测: 无Tag')
+            self._last_det_log_time = now
 
 
 def main(args=None):

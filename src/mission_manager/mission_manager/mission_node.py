@@ -157,7 +157,7 @@ class MissionManagerNode(LifecycleNode):
         )
 
         # -- 发布者 --
-        self._pub_cmd = self.create_lifecycle_publisher(Twist, '/cmd_vel', 10)
+        self._pub_cmd = self.create_lifecycle_publisher(Twist, '/cmd_vel_nav', 10)
 
         # -- 服务客户端 (调用外部控制板) --
         self._cli_trigger = self.create_client(
