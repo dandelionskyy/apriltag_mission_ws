@@ -144,6 +144,8 @@ class MissionManagerNode(LifecycleNode):
             'forward_vx':              self.get_parameter('forward_vx').value,
             'forward_timeout':         self.get_parameter('forward_timeout').value,
             # IMU 滤波
+            'search_align_thresh':     self.get_parameter('search_align_thresh').value,
+            'search_align_kp':         self.get_parameter('search_align_kp').value,
             'imu_filter_window':       self.get_parameter('imu_filter_window').value,
         }
 
@@ -261,6 +263,9 @@ class MissionManagerNode(LifecycleNode):
         # 盲走前进参数
         self.declare_parameter('forward_vx', 0.15)
         self.declare_parameter('forward_timeout', 30.0)
+        # 搜索对准
+        self.declare_parameter('search_align_thresh', 0.15)
+        self.declare_parameter('search_align_kp', 0.4)
         # IMU 滤波
         self.declare_parameter('imu_filter_window', 20)
 

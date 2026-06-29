@@ -3,6 +3,8 @@
     prepare_distance_offset: 0.6
     tag_timeout: 4.0
     search_yaw_rate: 0.3
+    search_align_thresh: 0.15     # SEARCH 对准阈值 (m)，Tag偏太多不进入TRACK
+    search_align_kp: 0.4           # SEARCH 对准的比例增益
     blind_vx: 0.1
     blind_approach_timeout: 10.0
     kp_yaw: 0.5

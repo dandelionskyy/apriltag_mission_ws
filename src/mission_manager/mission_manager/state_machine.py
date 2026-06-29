@@ -388,8 +388,17 @@ class MissionStateMachine:
         # 正常 approach 流程
         if self._tag_ok(tag):
             self._save_tag(tag, now)
-            r['action'] = self._goto(self.TRACK_TAG, now)
-            r['enable_servo'] = True
+            # 对准了再进 TRACK，避免边缘抓到 Tag 就冲
+            align_thresh = self.p.get('search_align_thresh', 0.15)
+            if abs(tag[0]) < align_thresh:
+                r['action'] = self._goto(self.TRACK_TAG, now)
+                r['enable_servo'] = True
+                return
+            # Tag 偏了 → P 控制旋转对中再进 TRACK
+            kp = self.p.get('search_align_kp', 0.4)
+            max_w = self.p.get('max_angular_vel', 0.5)
+            r['cmd_wz'] = max(-max_w, min(max_w, -kp * tag[0]))
+            r['action'] = f'对准中... x={tag[0]:.2f}m'
             return
 
         r['cmd_wz'] = self.p.get('search_yaw_rate', 0.3)
