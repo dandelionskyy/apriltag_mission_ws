@@ -161,7 +161,7 @@ class MissionManagerNode(LifecycleNode):
 
         # -- 服务客户端 (调用外部控制板) --
         self._cli_trigger = self.create_client(
-            TriggerMission, '/mission_trigger'
+            TriggerMission, '/mission_signal'
         )
 
         # -- 订阅者 --
