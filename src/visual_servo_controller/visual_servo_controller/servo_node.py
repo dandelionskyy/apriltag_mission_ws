@@ -92,6 +92,10 @@ class VisualServoNode(Node):
         self._timeout = 0.5                        # 0.5 秒
         self._timer = self.create_timer(0.1, self._check_timeout)
 
+        # -- 节流日志 --
+        self._last_log_time = self.get_clock().now()
+        self._log_interval = 2.0
+
         # -- 参数更新回调 --
         self.add_on_set_parameters_callback(self._on_param_change)
 
@@ -163,10 +167,30 @@ class VisualServoNode(Node):
             twist.linear.y = vy
             twist.angular.z = wz
         else:
-            vx, wz = self.law.compute(tag_x, tag_z, tag_yaw, self.target_dist)
+            vx, wz, changed, state_name, e_x, e_yaw, e_z = self.law.compute(
+                tag_x, tag_z, tag_yaw, self.target_dist
+            )
             twist.linear.x = vx
             twist.linear.y = 0.0
             twist.angular.z = wz
+
+            # 状态切换时立即打印
+            if changed:
+                self.get_logger().info(
+                    f'伺服状态: {state_name} | '
+                    f'e_x={e_x:.3f}m e_yaw={e_yaw:.2f}rad e_z={e_z:.2f}m'
+                )
+
+            # 节流日志
+            now = self.get_clock().now()
+            dt = (now - self._last_log_time).nanoseconds / 1e9
+            if dt >= self._log_interval:
+                self.get_logger().info(
+                    f'伺服状态: {state_name} | '
+                    f'Vx={vx:.3f} Wz={wz:.3f} | '
+                    f'e_x={e_x:.3f}m e_yaw={e_yaw:.2f}rad e_z={e_z:.2f}m'
+                )
+                self._last_log_time = now
 
         self.cmd_pub.publish(twist)
 

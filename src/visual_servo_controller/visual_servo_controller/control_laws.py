@@ -62,6 +62,8 @@ class ParallelControlLaw:
     APPROACH = 2
     IDLE = 3
 
+    _STATE_NAMES = {0: 'ALIGN_YAW', 1: 'ALIGN_LATERAL', 2: 'APPROACH', 3: 'IDLE'}
+
     def __init__(self, kp_yaw, kp_x, kp_dist,
                  align_thresh, yaw_thresh, max_v, max_w):
         self.kp_yaw = kp_yaw
@@ -73,36 +75,44 @@ class ParallelControlLaw:
         self.max_w = max_w
 
         self.state = self.ALIGN_YAW            # 初始从修正航向开始
+        self._prev_state = None                # 用于检测状态切换
 
     def reset(self):
         """重置子状态机，下次 compute 从头开始 ALIGN"""
         self.state = self.ALIGN_YAW
+        self._prev_state = None
+
+    @property
+    def state_name(self):
+        return self._STATE_NAMES.get(self.state, '?')
 
     def compute(self, tag_x, tag_z, tag_yaw, target_dist):
         """
         输入 Tag 的 x / z / yaw 和目标距离，输出 (vx, wz)
+        返回附加信息: (vx, wz, state_changed, state_name, e_x, e_yaw, e_z)
         """
         e_z = tag_z - target_dist
         e_x = tag_x
         e_yaw = tag_yaw
 
+        prev = self.state
+
         # 已经到目标距离了 → 停
         if abs(e_z) < 0.02:
             self.state = self.IDLE
-            return 0.0, 0.0
-
-        # -- 子状态机 --
-        if self.state == self.ALIGN_YAW:
-            return self._do_align_yaw(e_yaw)
-
+            vx, wz = 0.0, 0.0
+        elif self.state == self.ALIGN_YAW:
+            vx, wz = self._do_align_yaw(e_yaw)
         elif self.state == self.ALIGN_LATERAL:
-            return self._do_align_lateral(e_x, e_yaw)
-
+            vx, wz = self._do_align_lateral(e_x, e_yaw)
         elif self.state == self.APPROACH:
-            return self._do_approach(e_x, e_yaw, e_z)
-
+            vx, wz = self._do_approach(e_x, e_yaw, e_z)
         else:  # IDLE
-            return 0.0, 0.0
+            vx, wz = 0.0, 0.0
+
+        changed = (self.state != prev)
+        self._prev_state = prev
+        return vx, wz, changed, self.state_name, e_x, e_yaw, e_z
 
     def _do_align_yaw(self, e_yaw):
         """修正航向：转正了才能进入横向对中"""
