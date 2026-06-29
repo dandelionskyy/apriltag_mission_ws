@@ -169,7 +169,7 @@ class MissionManagerNode(LifecycleNode):
             TagPose, '/tag_pose', self._cb_tag, 10
         )
         self._sub_imu = self.create_subscription(
-            Imu, '/camera/camera/imu', self._cb_imu, 10
+            Imu, '/livox/imu', self._cb_imu, 10
         )
 
         # -- 远程参数客户端 --
