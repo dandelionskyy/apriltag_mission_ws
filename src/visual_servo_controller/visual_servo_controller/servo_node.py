@@ -89,7 +89,7 @@ class VisualServoNode(Node):
 
         # -- 超时保护：太久没看到 Tag 就停车 --
         self._last_seen = self.get_clock().now()
-        self._timeout = 0.5                        # 0.5 秒
+        self._timeout = 1.5                        # 1.5 秒，避免短暂丢帧导致顿挫
         self._timer = self.create_timer(0.1, self._check_timeout)
 
         # -- 节流日志 --

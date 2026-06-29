@@ -1,7 +1,7 @@
 /**:
   ros__parameters:
-    prepare_distance_offset: 0.4
-    tag_timeout: 2.0
+    prepare_distance_offset: 0.6
+    tag_timeout: 4.0
     search_yaw_rate: 0.3
     blind_vx: 0.1
     blind_approach_timeout: 10.0
