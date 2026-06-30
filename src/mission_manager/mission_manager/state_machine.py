@@ -352,12 +352,12 @@ class MissionStateMachine:
 
     def _run_search(self, r, tag, now):
         """
-        SEARCH_TAG: 原地旋转寻找目标 Tag。
+        SEARCH_TAG: 前进搜索目标 Tag。
 
-        如果首步骤不是 approach (即 turn/forward/correct_heading):
-          跳过 SEARCH 直接进入对应状态。
-        如果已检测到目标 Tag → TRACK_TAG
-        否则 → 继续旋转
+        如果首步骤不是 approach → 跳过, 直接进入对应状态。
+        已检测到目标 Tag → P 对中 → TRACK_TAG
+        Tag 短暂丢失 → 用 last_tag 延续对中
+        Tag 彻底丢失 → 低速前进
         """
         r['enable_servo'] = False
 
@@ -365,7 +365,7 @@ class MissionStateMachine:
             r['action'] = self._goto(self.FINISHED, now)
             return
 
-        # 如果当前步骤不是 approach，直接跳转到对应状态
+        # 如果当前步骤不是 approach，直接跳转
         if self._current_step_type == self.STEP_TURN:
             self._start_turn(now)
             r['action'] = self._goto(self.TURN, now)
@@ -379,29 +379,35 @@ class MissionStateMachine:
             r['action'] = self._goto(self.CORRECT_HEADING, now)
             return
         elif self._current_step_type == self.STEP_SIGNAL:
-            # 纯发信号步骤 (无 approach)
             self.signal_start = now
             self._send_signal = True
             r['action'] = self._goto(self.SEND_SIGNAL, now)
             return
 
-        # 正常 approach 流程
+        align_thresh = self.p.get('search_align_thresh', 0.15)
+        kp = self.p.get('search_align_kp', 0.4)
+        max_w = self.p.get('max_angular_vel', 0.5)
+
         if self._tag_ok(tag):
+            # Tag 当前可见 → 新鲜数据
             self._save_tag(tag, now)
-            # 对准了再进 TRACK，避免边缘抓到 Tag 就冲
-            align_thresh = self.p.get('search_align_thresh', 0.15)
+
             if abs(tag[0]) < align_thresh:
                 r['action'] = self._goto(self.TRACK_TAG, now)
                 r['enable_servo'] = True
                 return
-            # Tag 偏了 → P 控制旋转对中再进 TRACK
-            kp = self.p.get('search_align_kp', 0.4)
-            max_w = self.p.get('max_angular_vel', 0.5)
+
             r['cmd_wz'] = max(-max_w, min(max_w, -kp * tag[0]))
             r['action'] = f'对准中... x={tag[0]:.2f}m'
             return
 
-        # 没看到目标 Tag → 低速前进 (不旋转)
+        if not self._tag_lost(now) and self.last_tag is not None:
+            # Tag 短暂丢帧 → 用记忆延续对中 (但不进 TRACK)
+            r['cmd_wz'] = max(-max_w, min(max_w, -kp * self.last_tag[0]))
+            r['action'] = f'对准中(记忆) x={self.last_tag[0]:.2f}m'
+            return
+
+        # Tag 彻底丢失 → 低速前进
         r['cmd_vx'] = self.p.get('search_forward_speed', 0.08)
         r['action'] = '前进搜索中...'
 
