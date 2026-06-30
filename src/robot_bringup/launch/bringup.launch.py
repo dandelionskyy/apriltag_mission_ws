@@ -30,6 +30,11 @@ def generate_launch_description():
         description='机器人类型: "serial" (串联腿) 或 "parallel" (并联腿)'
     )
 
+    turn_sign_arg = DeclareLaunchArgument(
+        'turn_sign', default_value='1',
+        description='转向符号: 1=正常, -1=镜像(左右互换)'
+    )
+
     # -- 节点 1: Tag 检测 --
     detector = Node(
         package='apriltag_detector',
@@ -61,6 +66,7 @@ def generate_launch_description():
         parameters=[
             cfg('mission_params.yaml'),
             {'missions_file': cfg('missions.yaml')},
+            {'turn_sign': LaunchConfiguration('turn_sign')},
         ],
     )
 
@@ -76,6 +82,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         robot_type_arg,
+        turn_sign_arg,
         detector,
         servo,
         mission,

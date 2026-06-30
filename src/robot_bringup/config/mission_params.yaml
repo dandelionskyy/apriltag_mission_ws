@@ -17,6 +17,7 @@
     turn_timeout: 15.0
     turn_settle_time: 0.3
     turn_kp_yaw: 1.0
+    turn_sign: 1                  # 1=正常, -1=镜像(左右互换)
     # 航向修正
     correction_yaw_rate: 0.3
     correction_tolerance: 0.04

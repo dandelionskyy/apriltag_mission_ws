@@ -638,7 +638,8 @@ class MissionStateMachine:
     def _start_turn(self, now):
         """记录滤波后的起始航向，计算目标绝对航向"""
         self.turn_start_yaw = self._filtered_yaw()
-        target_rad = math.radians(self.turn_angle)
+        sign = self.p.get('turn_sign', 1)
+        target_rad = math.radians(self.turn_angle) * sign
         self.turn_target_yaw = self._norm_angle(self.turn_start_yaw + target_rad)
         self.turn_start_time = now
         self._turn_done = False

@@ -138,6 +138,7 @@ class MissionManagerNode(LifecycleNode):
             'turn_timeout':            self.get_parameter('turn_timeout').value,
             'turn_settle_time':        self.get_parameter('turn_settle_time').value,
             'turn_kp_yaw':             self.get_parameter('turn_kp_yaw').value,
+            'turn_sign':               self.get_parameter('turn_sign').value,
             # 航向修正
             'correction_yaw_rate':     self.get_parameter('correction_yaw_rate').value,
             'correction_tolerance':    self.get_parameter('correction_tolerance').value,
@@ -260,6 +261,7 @@ class MissionManagerNode(LifecycleNode):
         self.declare_parameter('turn_timeout', 15.0)
         self.declare_parameter('turn_settle_time', 0.3)
         self.declare_parameter('turn_kp_yaw', 1.0)
+        self.declare_parameter('turn_sign', 1)
         # 航向修正参数
         self.declare_parameter('correction_yaw_rate', 0.3)
         self.declare_parameter('correction_tolerance', 0.04)
