@@ -401,8 +401,9 @@ class MissionStateMachine:
             r['action'] = f'对准中... x={tag[0]:.2f}m'
             return
 
-        r['cmd_wz'] = self.p.get('search_yaw_rate', 0.3)
-        r['action'] = '旋转搜索中...'
+        # 没看到目标 Tag → 低速前进 (不旋转)
+        r['cmd_vx'] = self.p.get('search_forward_speed', 0.08)
+        r['action'] = '前进搜索中...'
 
     # -------------------------------------------------------------------
     # TRACK_TAG
@@ -656,9 +657,9 @@ class MissionStateMachine:
             r['action'] = f'TURN settle {elapsed:.1f}s'
             return
 
-        # 计算误差
+        # 计算误差: current - target, 正=转过了, 负=还没转到
         current_yaw = self._filtered_yaw()
-        error = self._norm_angle(self.turn_target_yaw - current_yaw)
+        error = self._norm_angle(current_yaw - self.turn_target_yaw)
 
         # 完成判定
         if abs(error) < tolerance:

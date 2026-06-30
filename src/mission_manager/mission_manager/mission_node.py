@@ -148,6 +148,7 @@ class MissionManagerNode(LifecycleNode):
             # IMU 滤波
             'search_align_thresh':     self.get_parameter('search_align_thresh').value,
             'search_align_kp':         self.get_parameter('search_align_kp').value,
+            'search_forward_speed':    self.get_parameter('search_forward_speed').value,
             'imu_filter_window':       self.get_parameter('imu_filter_window').value,
         }
 
@@ -268,6 +269,7 @@ class MissionManagerNode(LifecycleNode):
         # 搜索对准
         self.declare_parameter('search_align_thresh', 0.15)
         self.declare_parameter('search_align_kp', 0.4)
+        self.declare_parameter('search_forward_speed', 0.08)
         # IMU 滤波
         self.declare_parameter('imu_filter_window', 20)
 
