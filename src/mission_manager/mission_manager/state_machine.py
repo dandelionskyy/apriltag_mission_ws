@@ -632,53 +632,51 @@ class MissionStateMachine:
     # ===================================================================
 
     def _start_turn(self, now):
-        """记录滤波后的起始航向，计算目标绝对航向"""
-        self.turn_start_yaw = self._filtered_yaw()
-        target_rad = math.radians(self.turn_angle)
-        self.turn_target_yaw = self._norm_angle(self.turn_start_yaw + target_rad)
+        """记录起始时间，计算转向时长"""
         self.turn_start_time = now
         self._turn_done = False
 
     def _run_turn(self, r, now):
-        """TURN: 原地旋转到目标 IMU 航向"""
+        """TURN: 时间开环控制 — 固定角速度, 不依赖 IMU 反馈"""
         turn_rate = self.p.get('turn_yaw_rate', 0.5)
-        tolerance = self.p.get('turn_tolerance', 0.05)
         timeout = self.p.get('turn_timeout', 15.0)
         settle = self.p.get('turn_settle_time', 0.3)
-        kp = self.p.get('turn_kp_yaw', 1.0)
 
-        # settle 期 — 让 IMU 缓冲填满
+        angle_rad = math.radians(self.turn_angle)
+        direction = 1.0 if angle_rad > 0 else -1.0
+        turn_duration = abs(angle_rad) / turn_rate  # 理论转向时长
+
         elapsed = now - self.turn_start_time
+
+        # settle 期
         if elapsed < settle:
             r['cmd_vx'] = 0.0
             r['cmd_wz'] = 0.0
-            r['action'] = f'TURN settle {(elapsed):.1f}s'
+            r['action'] = f'TURN settle {elapsed:.1f}s'
             return
 
-        # 计算误差
-        current_yaw = self._filtered_yaw()
-        error = self._norm_angle(self.turn_target_yaw - current_yaw)
+        turn_elapsed = elapsed - settle
 
-        # 完成判定
-        if abs(error) < tolerance:
-            self._turn_done = True
-            r['action'] = (f'转向完成 {self.turn_angle:.0f}° '
-                           f'(err={math.degrees(error):.1f}°)')
-            r['action'] += ' → ' + self._goto(self.FINISHED, now)
-            return
-
+        # 超时保护
         if elapsed > timeout:
             self._turn_done = True
-            r['action'] = f'转向超时 (err={math.degrees(error):.1f}°)'
+            r['action'] = f'转向超时 ({elapsed:.1f}s > {timeout:.0f}s)'
             r['action'] += ' → ' + self._goto(self.FINISHED, now)
             return
 
-        # P 控制角速度
-        wz = max(-turn_rate, min(turn_rate, kp * error))
+        # 时间到 → 完成
+        if turn_elapsed >= turn_duration:
+            self._turn_done = True
+            r['action'] = f'转向完成 {self.turn_angle:.0f}° ({elapsed:.1f}s)'
+            r['action'] += ' → ' + self._goto(self.FINISHED, now)
+            return
+
+        # 固定角速度
+        wz = turn_rate * direction
         r['cmd_vx'] = 0.0
         r['cmd_wz'] = wz
-        r['action'] = (f'转向中 err={math.degrees(error):.1f}° '
-                       f'/ {self.turn_angle:.0f}°')
+        r['action'] = (f'转向中 {turn_elapsed:.1f}s / {turn_duration:.1f}s '
+                       f'wz={wz:.2f} ({self.turn_angle:.0f}°)')
 
 
     # ===================================================================

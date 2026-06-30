@@ -81,6 +81,9 @@ class MissionManagerNode(LifecycleNode):
         self._tag_new = False
         self._imu_yaw = 0.0
         self._last_imu_time = None        # 用于角速度积分
+        self._imu_has_orientation = True  # IMU 是否提供融合后的姿态
+        self._last_loop_time = None       # 用于 cmd_wz 积分 (Livox无orientation时)
+        self._last_cmd_wz = 0.0           # 上一周期发出的角速度
 
         # 发布者 & 订阅者 & 服务客户端
         self._pub_cmd = None
@@ -202,6 +205,9 @@ class MissionManagerNode(LifecycleNode):
         self._cache_x = None
         self._pending_signal = None
         self._signal_sent = False
+        self._imu_has_orientation = True
+        self._last_cmd_wz = 0.0
+        self._last_loop_time = None
 
         hz = self.sm.p.get('loop_rate', 50.0)
         self._timer = self.create_timer(1.0 / hz, self._loop)
@@ -329,9 +335,9 @@ class MissionManagerNode(LifecycleNode):
     def _cb_imu(self, msg: Imu):
         # 优先使用 orientation (融合后的姿态), 若无效则积分角速度
         q = msg.orientation
-        has_orientation = not (abs(q.x) < 1e-9 and abs(q.y) < 1e-9
-                               and abs(q.z) < 1e-9 and abs(q.w - 1.0) < 1e-9)
-        if has_orientation:
+        self._imu_has_orientation = not (abs(q.x) < 1e-9 and abs(q.y) < 1e-9
+                                         and abs(q.z) < 1e-9 and abs(q.w - 1.0) < 1e-9)
+        if self._imu_has_orientation:
             self._imu_yaw = _yaw_from_quat(q.x, q.y, q.z, q.w)
         else:
             # Livox 等设备只给角速度, 自己积分
@@ -353,6 +359,13 @@ class MissionManagerNode(LifecycleNode):
             return
 
         now = time.monotonic()
+
+        # Livox 无 orientation: 积分上周期发布的 cmd_wz (桌面测试 IMU 不转时用指令驱动 yaw)
+        if not self._imu_has_orientation and self._last_loop_time is not None:
+            dt = now - self._last_loop_time
+            if 0.0 < dt < 0.5:
+                self._imu_yaw += self._last_cmd_wz * dt
+
         self.sm.update_imu(self._imu_yaw)
 
         tag = self._tag if self._tag_new else None
@@ -385,12 +398,15 @@ class MissionManagerNode(LifecycleNode):
 
         # -- 速度指令 (只在伺服关闭时发，避免和 servo 冲突) --
         enable_servo = bool(r.get('enable_servo', False))
+        cmd_wz = float(r['cmd_wz'])
         if not enable_servo and self._pub_cmd and self._pub_cmd.is_activated:
             t = Twist()
             t.linear.x  = float(r['cmd_vx'])
             t.linear.y  = float(r['cmd_vy'])
-            t.angular.z = float(r['cmd_wz'])
+            t.angular.z = cmd_wz
             self._pub_cmd.publish(t)
+        self._last_cmd_wz = cmd_wz
+        self._last_loop_time = now
 
         # -- 远程设参 (带缓存，避免重复) --
         tid = int(r['target_tag_id'])
