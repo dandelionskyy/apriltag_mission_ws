@@ -91,6 +91,7 @@ class MissionManagerNode(LifecycleNode):
         # 服务调用状态 (避免每个循环周期都调)
         self._pending_signal = None   # 待发送的 (mission_id, tag_id, distance, angle)
         self._signal_sent = False     # 本段信号是否已发送成功
+        self._last_cmd_log = None     # cmd_vel 日志节流
 
         # 远程参数客户端
         self._cli_detector = None          # → apriltag_detector/set_parameters
@@ -159,8 +160,8 @@ class MissionManagerNode(LifecycleNode):
             f'tag_id={m0["tag_id"]}, stop={m0["stop_distance"]}m'
         )
 
-        # -- 发布者 --
-        self._pub_cmd = self.create_lifecycle_publisher(Twist, '/cmd_vel_nav', 10)
+        # -- 发布者 (普通 publisher, 不用 lifecycle 避免 is_activated 问题) --
+        self._pub_cmd = self.create_publisher(Twist, '/cmd_vel_nav', 10)
 
         # -- 服务客户端 (调用外部控制板) --
         self._cli_trigger = self.create_client(
@@ -384,12 +385,18 @@ class MissionManagerNode(LifecycleNode):
 
         # -- 速度指令 (只在伺服关闭时发，避免和 servo 冲突) --
         enable_servo = bool(r.get('enable_servo', False))
-        if not enable_servo and self._pub_cmd and self._pub_cmd.is_activated:
+        if not enable_servo and self._pub_cmd:
             t = Twist()
             t.linear.x  = float(r['cmd_vx'])
             t.linear.y  = float(r['cmd_vy'])
             t.angular.z = float(r['cmd_wz'])
             self._pub_cmd.publish(t)
+            # 节流日志: 发非零速度时每2秒打印一次
+            if (t.linear.x != 0.0 or t.angular.z != 0.0):
+                if self._last_cmd_log is None or (now - self._last_cmd_log) > 2.0:
+                    self.get_logger().info(
+                        f'[CMD] Vx={t.linear.x:.2f} Vy={t.linear.y:.2f} Wz={t.angular.z:.2f}')
+                    self._last_cmd_log = now
 
         # -- 远程设参 (带缓存，避免重复) --
         tid = int(r['target_tag_id'])
@@ -494,7 +501,7 @@ class MissionManagerNode(LifecycleNode):
         """发零速度"""
         t = Twist()
         try:
-            if self._pub_cmd and self._pub_cmd.is_activated:
+            if self._pub_cmd:
                 self._pub_cmd.publish(t)
         except Exception:
             pass
