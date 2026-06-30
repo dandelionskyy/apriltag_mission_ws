@@ -1,366 +1,288 @@
-# Apriltag Mission Trigger System
+# Apriltag Mission — 调参手册
 
-基于 ROS2 Humble 的 Apriltag 任务触发系统。
+## 文件索引
 
-机器人前端安装 Intel RealSense D455，环境中放置多个 Apriltag，每个 Tag 对应一个任务点。
-机器人检测到指定 Tag 后，自动调整姿态并运动到目标距离，然后通过 ROS2 Topic 发布任务编号给运动控制开发板。
-
-**不依赖 SLAM，不依赖 Nav2，不依赖 Fast-LIO。Apriltag 仅用于障碍物识别、相对位姿测量和任务触发。**
-
----
-
-## 目录结构
-
-```
-apriltag_mission_ws/
-├── README.md
-├── src/
-│   ├── apriltag_interfaces/          # 自定义 ROS2 消息 (CMake)
-│   │   ├── CMakeLists.txt
-│   │   ├── package.xml
-│   │   └── msg/
-│   │       ├── TagPose.msg           # 单个 Tag 的 3D 位姿
-│   │       ├── MissionSignal.msg     # 任务完成信号
-│   │       ├── TagDetection.msg      # 单次检测结果
-│   │       └── TagDetectionArray.msg # 检测结果列表
-│   │
-│   ├── apriltag_detector/            # Tag 检测节点 (Python)
-│   │   ├── package.xml
-│   │   ├── setup.py / setup.cfg
-│   │   └── apriltag_detector/
-│   │       ├── __init__.py
-│   │       └── detector_node.py      # AprilTagDetectorNode
-│   │
-│   ├── visual_servo_controller/      # 视觉伺服节点 (Python)
-│   │   ├── package.xml
-│   │   ├── setup.py / setup.cfg
-│   │   └── visual_servo_controller/
-│   │       ├── __init__.py
-│   │       ├── servo_node.py         # VisualServoNode
-│   │       └── control_laws.py       # SerialControlLaw + ParallelControlLaw
-│   │
-│   ├── mission_manager/              # 任务状态机 (Python, LifecycleNode)
-│   │   ├── package.xml
-│   │   ├── setup.py / setup.cfg
-│   │   └── mission_manager/
-│   │       ├── __init__.py
-│   │       ├── mission_node.py       # MissionManagerNode (LifecycleNode)
-│   │       └── state_machine.py      # MissionStateMachine (纯逻辑)
-│   │
-│   └── robot_bringup/                # 启动文件与配置
-│       ├── package.xml
-│       ├── setup.py / setup.cfg
-│       ├── launch/
-│       │   └── bringup.launch.py     # 主启动文件
-│       └── config/
-│           ├── camera_tf.yaml        # base_link -> camera_link 静态 TF
-│           ├── detector_params.yaml  # pupil_apriltags 配置
-│           ├── controller_params.yaml# 控制律参数
-│           ├── missions.yaml         # 任务队列
-│           └── mission_params.yaml   # 状态机参数
-```
+| 文件 | 用途 |
+|------|------|
+| `src/robot_bringup/config/controller_params.yaml` | 视觉伺服 (CorrectionLaw / SerialControlLaw) |
+| `src/robot_bringup/config/mission_params.yaml` | 状态机 & 盲走 & 转向 |
+| `src/robot_bringup/config/missions.yaml` | 任务序列 & 目标点 |
+| `src/robot_bringup/config/detector_params.yaml` | Tag 检测 |
+| `src/robot_bringup/config/camera_tf.yaml` | 相机外参 |
 
 ---
 
-## TF 树
-
-```
-base_link
-    │
-    └── camera_link  (静态 TF, 从 camera_tf.yaml 加载)
-```
-
-静态变换由 `apriltag_detector` 节点在启动时广播。
-
-配置参数示例 (`camera_tf.yaml`)：
-
-```yaml
-camera_tf:
-  translation:
-    x: 0.18   # 相机在 base_link 前方 18cm
-    y: 0.0    # 居中
-    z: 0.25   # 高度 25cm
-  rotation:
-    roll: 0.0
-    pitch: 0.0
-    yaw: 0.0
-```
-
----
-
-## 节点通信图
-
-```
- /camera/color/image_raw               /imu/data
-        │                                  │
-        ▼                                  │
-┌─────────────────┐                        │
-│ apriltag_detector│                       │
-│                 │   /tag_pose            │
-│  publishes:     │──────┬─────────────────┤
-│  /tag_pose      │      │                 │
-│  /tag_detections│      ▼                 │
-└─────────────────┘  ┌──────────────────┐  │
-                     │visual_servo_     │  │
-                     │controller        │  │
-                     │                  │  │
-                     │ publishes:       │  │
-                     │ /cmd_vel ────────┤  │
-                     └──────────────────┘  │
-                              │            │
-                              ▼            ▼
-                     ┌──────────────────────────┐
-                     │    mission_manager        │
-                     │    (LifecycleNode)         │
-                     │                           │
-                     │  subscribes:              │
-                     │    /tag_pose              │
-                     │    /imu/data              │
-                     │                           │
-                     │  publishes:               │
-                     │    /cmd_vel   (SEARCH/BLIND)│
-                     │    /mission_signal         │
-                     │                           │
-                     │  远程参数控制:              │
-                     │    detector.target_tag_id   │
-                     │    servo.enable            │
-                     │    servo.target_distance   │
-                     └──────────────────────────┘
-```
-
----
-
-## 状态机流程图
-
-```
-                    ┌─────────────┐
-                    │ SEARCH_TAG  │  原地旋转寻找目标Tag
-                    └──────┬──────┘
-                           │ Tag 被检测到 & ID 匹配
-                           ▼
-                    ┌─────────────┐
-             ┌──────│ TRACK_TAG   │  视觉伺服跟踪
-             │      └──────┬──────┘
-             │             │ tag_z < prepare_distance
-             │             ▼
-             │      ┌─────────────┐
-             │      │  PREPARE    │  接近目标，记录 IMU 航向
-             │      └──┬──────┬───┘
-             │         │      │ Tag 丢失
-             │         │      ▼
-             │         │  ┌───────────────┐
-             │         │  │ BLIND_APPROACH│  盲走模式: 恒定vx + IMU航向保持
-             │         │  └───────┬───────┘
-             │         │          │ 时间到 / 超时
-             │         ▼          ▼
-             │      ┌────────────────┐
-             │      │     STOP       │  停止, 短暂保持
-             │      └───────┬────────┘
-             │              │
-             │              ▼
-             │      ┌────────────────┐
-             │      │  SEND_SIGNAL   │  发布 /mission_signal
-             │      └───────┬────────┘
-             │              │
-             │              ▼
-             │      ┌────────────────┐
-             │      │   FINISHED     │  任务完成, 检查下一个任务
-             │      └────────────────┘
-             │
-             └──── Tag 丢失超时 ──► 返回 SEARCH_TAG
-```
-
-### 状态转换条件
-
-| 当前状态 | 条件 | 下一状态 |
-|----------|------|----------|
-| SEARCH_TAG | 目标 Tag 被检测到 | TRACK_TAG |
-| SEARCH_TAG | 所有任务已完成 | FINISHED |
-| TRACK_TAG | tag_z < prepare_distance | PREPARE |
-| TRACK_TAG | Tag 丢失超过 tag_timeout | SEARCH_TAG |
-| PREPARE | tag_z < stop_distance | STOP |
-| PREPARE | Tag 丢失 | BLIND_APPROACH |
-| BLIND_APPROACH | 盲走时间到 | STOP |
-| BLIND_APPROACH | 超时 (安全保护) | STOP |
-| STOP | 保持完成 | SEND_SIGNAL |
-| SEND_SIGNAL | 信号持续 signal_duration | FINISHED |
-| FINISHED | 还有下一个任务 | SEARCH_TAG |
-
----
-
-## 两种机器人类型
-
-### 类型1: 串联腿机器人 (12-DOF)
-
-支持 Vx, Vy, Wz。
-
-控制律：
-```
-error_z  = tag_z - target_distance
-error_x  = tag_x
-error_yaw = tag_yaw
-
-vx = clip(kp_dist * error_z,  ±max_linear_vel)
-vy = clip(kp_x   * error_x,  ±max_linear_vel)
-wz = clip(kp_yaw * error_yaw, ±max_angular_vel)
-```
-
-### 类型2: 并联腿机器人 (8-DOF)
-
-仅支持 Vx, Wz (无 Vy)。
-
-内部子状态机: ALIGN_YAW → ALIGN_LATERAL → APPROACH
-
-```
-if |error_yaw| > threshold:   wz = kp_yaw * error_yaw
-elif |error_x| > threshold:   wz = -kp_x * error_x   (旋转对中)
-else:                         vx = kp_dist * error_z  (前进)
-```
-
-切换机器人类型：修改 `controller_params.yaml` 中的 `robot_type` 为 `"serial"` 或 `"parallel"`。
-
----
-
-## Blind Approach 设计
-
-当 Tag 在 PREPARE 阶段丢失时，进入盲走模式：
-
-1. **记录参考数据**：`yaw_ref = 当前IMU航向`, `remain = last_tag_z - stop_distance`
-2. **计算行进时间**：`travel_time = remain / blind_vx`
-3. **控制律**：
-   - `vx = blind_vx` (恒定前进速度)
-   - `wz = clip(kp_yaw * (yaw_ref - yaw_current), ±max_angular_vel)`
-4. **退出条件**：时间到达或 `blind_approach_timeout` 超时
-
-IMU 只用于航向保持，不用于全局定位。
-
----
-
-## 环境要求
-
-- **操作系统**: Ubuntu 22.04
-- **ROS2**: Humble Hawksbill
-- **Python**: 3.10 (系统 Python, 不要使用 conda Python 3.13)
-- **依赖**:
-  ```bash
-  # 系统 Python 包
-  /usr/bin/python3.10 -m pip install pupil-apriltags scipy numpy pyyaml
-
-  # ROS2 包 (通过 apt)
-  sudo apt install ros-humble-cv-bridge ros-humble-tf2-ros ros-humble-vision-msgs
-  ```
-
----
-
-## 编译
-
-```bash
-# 1. 确保使用系统 Python 3.10
-conda deactivate
-
-# 2. Source ROS2
-source /opt/ros/humble/setup.bash
-
-# 3. 编译
-cd ~/apriltag_mission_ws
-colcon build --symlink-install
-
-# 4. Source 工作空间
-source install/setup.bash
-```
-
----
-
-## 运行
-
-```bash
-# 启动所有节点
-ros2 launch robot_bringup bringup.launch.py
-
-# 指定机器人类型
-ros2 launch robot_bringup bringup.launch.py robot_type:=parallel
-
-# 调试模式 (详细日志)
-ros2 launch robot_bringup bringup.launch.py \
-    --ros-args -p log_level:=debug
-```
-
-### 手动管理 Lifecycle (可选)
-
-```bash
-# 查看状态
-ros2 lifecycle get mission_manager
-
-# 手动配置和激活
-ros2 lifecycle set mission_manager configure
-ros2 lifecycle set mission_manager activate
-
-# 停止
-ros2 lifecycle set mission_manager deactivate
-```
-
----
-
-## 配置指南
-
-所有参数通过 YAML 文件配置，无硬编码。
-
-### 任务配置 (`missions.yaml`)
+## 一、任务 & 目标点 (`missions.yaml`)
 
 ```yaml
 missions:
   - mission_id: 1
     tag_id: 0
-    stop_distance: 0.8    # 在 Tag 前方 0.8m 处停止
-
-  - mission_id: 2
-    tag_id: 1
-    stop_distance: 1.0
+    stop_distance: 2.1    # target_z — 目标在 tag 前方多远 (m)
+    target_x: 0.05        # 目标点横向偏置 (m), 默认 0
+    steps:                # 步骤序列
+      - type: approach    # 走向目标点
+      - type: turn
+        angle: -90        # 转向角度 (deg), 正=右转 负=左转
+      - type: signal      # 发信号给控制板
 ```
 
-### 相机 TF (`camera_tf.yaml`)
+### 目标点坐标系
 
-配置 `base_link → camera_link` 的静态变换。
+以 tag 为中心, 面向 tag 时:
 
-### 检测器 (`detector_params.yaml`)
+```
+      tag
+     ┌───┐
+     │   │  → +X (tag 右侧)
+     └───┘
+       │
+       ▼ +Z (tag 前方)
+```
 
-pupil_apriltags 参数、Tag 物理尺寸、相机内参。
+| 想停在 tag 的... | target_x |
+|-----------------|----------|
+| 正前方 | `0` (默认) |
+| 右侧 10cm | `0.1` |
+| 左侧 5cm | `-0.05` |
 
-### 控制器 (`controller_params.yaml`)
+### 步骤类型
 
-`robot_type`、PID 增益、速度限制。
-
-### 状态机 (`mission_params.yaml`)
-
-`prepare_distance_offset`、`tag_timeout`、`blind_vx`、`blind_approach_timeout` 等。
+| type | 参数 | 说明 |
+|------|------|------|
+| `approach` | — | 走向 target_x / target_z 目标点 |
+| `turn` | `angle` (deg) | IMU 转向, 正=右转 |
+| `signal` | — | 发 TriggerMission 服务 |
+| `forward` | `distance` (m) | 盲走前进 |
+| `correct_heading` | `tag_id` | 旋转正对指定 tag |
 
 ---
 
-## Topic 列表
+## 二、伺服矫正 (`controller_params.yaml`)
 
-| Topic | 类型 | 发布者 | 订阅者 |
-|-------|------|--------|--------|
-| `/camera/color/image_raw` | `sensor_msgs/Image` | RealSense D455 | `apriltag_detector` |
-| `/imu/data` | `sensor_msgs/Imu` | IMU 传感器 | `mission_manager` |
-| `/tag_pose` | `apriltag_interfaces/TagPose` | `apriltag_detector` | `visual_servo_controller`, `mission_manager` |
-| `/tag_detections` | `apriltag_interfaces/TagDetectionArray` | `apriltag_detector` | (调试) |
-| `/cmd_vel` | `geometry_msgs/Twist` | `visual_servo_controller`, `mission_manager` | 机器人底盘 |
-| `/mission_signal` | `apriltag_interfaces/MissionSignal` | `mission_manager` | 外部控制板 |
+### 算法: CorrectionLaw (parallel 模式)
+
+边移动边修正, 不分阶段。每周期同时输出 Vx 和 Wz:
+
+```
+e_yaw = tag_yaw
+e_x   = tag_x + target_x        ← target_x 是目标点横向偏置
+e_z   = tag_z - target_z
+
+damping = exp(-|e_yaw| / yaw_decay) × exp(-|e_x| / x_decay)
+
+Vx = clip(kp_dist × e_z × damping,   ±max_linear_vel)
+Wz = clip(kp_yaw × e_yaw + kp_x × e_x, ±max_angular_vel)
+```
+
+damping 效果:
+
+```
+e_yaw=0,  e_x=0    → damping = 1.0   → Vx 全速
+e_yaw=yaw_decay    → damping ≈ 0.37  → Vx 降至 37%
+e_yaw→∞            → damping → 0     → Vx→0, 原地旋转对准
+```
+
+### parallel 参数
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `parallel.kp_yaw` | 1.0 | 航向修正强度 (e_yaw → Wz) |
+| `parallel.kp_x` | 0.4 | 横向修正强度 (m → rad/s) |
+| `parallel.kp_dist` | 0.3 | 前进速度增益 (e_z × damping → Vx) |
+| `parallel.yaw_decay` | 0.3 | yaw 阻尼系数 (rad): 偏此值时 Vx 剩 37% |
+| `parallel.x_decay` | 0.15 | 横向阻尼系数 (m): 偏此值时 Vx 剩 37% |
+| `max_linear_vel` | 0.2 | 最大线速度 (m/s) |
+| `max_angular_vel` | 0.5 | 最大角速度 (rad/s) |
+
+### 调参顺序
+
+**第 1 步 — kp_yaw / kp_x**
+
+观察伺服日志 `e_yaw=... e_x=...`:
+
+| 现象 | 调法 |
+|------|------|
+| 旋转太慢, 一直有 yaw 偏差 | ↑ kp_yaw |
+| 旋转振荡, 反复过冲 | ↓ kp_yaw |
+| 对准了航向但 tag 偏左/右, Wz 太弱 | ↑ kp_x |
+| Wz 过大导致横向修正过冲 | ↓ kp_x |
+
+**第 2 步 — 阻尼 yaw_decay / x_decay**
+
+控制"偏多少才减速":
+
+```
+yaw_decay=0.1 → e_yaw=5.7° 时 Vx 剩 37%  (敏感: 稍偏就不走)
+yaw_decay=0.3 → e_yaw=17°  时 Vx 剩 37%  (默认)
+yaw_decay=0.5 → e_yaw=29°  时 Vx 剩 37%  (宽容: 偏很多还走)
+```
+
+| 现象 | 调法 |
+|------|------|
+| 偏差大时还在往前冲 | ↓ 对应 decay |
+| 基本对准了但 Vx 太低不走 | ↑ 对应 decay |
+
+**第 3 步 — kp_dist**
+
+对准后前进速度:
+
+```
+kp_dist=0.3  e_z=1m  damping≈1  →  Vx=0.30 m/s
+kp_dist=0.5  e_z=1m  damping≈1  →  Vx=0.50 m/s
+```
+
+### 算法: SerialControlLaw (serial 模式)
+
+三通道独立 P 控制:
+
+```
+Vx = clip(kp_dist × (tag_z - target),  ±max_v)
+Vy = clip(kp_x   × tag_x,              ±max_v)
+Wz = clip(kp_yaw × tag_yaw,            ±max_w)
+```
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `serial.kp_dist` | 0.5 | 前后速度增益 |
+| `serial.kp_x` | 0.3 | 左右速度增益 |
+| `serial.kp_yaw` | 1.0 | 旋转速度增益 |
 
 ---
 
-## 多机通信
+## 三、状态机 (`mission_params.yaml`)
 
-任务完成后，`mission_manager` 发布 `/mission_signal` 消息：
+### SEARCH — 搜索 tag
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `search_forward_speed` | 0.08 | 没看到 tag 时低速前进 (m/s) |
+| `search_align_thresh` | 0.15 | tag 横向偏差 < 此值才进 TRACK (m) |
+| `search_align_kp` | 0.4 | tag 可见但偏离时, 旋转对中的 P 增益 |
+
+### PREPARE — 伺服逼近
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `prepare_distance_offset` | 0.6 | 进入 PREPARE 的距离 = target_z + offset (m) |
+| `prepare_arrival_thresh` | 0.10 | 深度误差 < 此值 → 到达目标 (m) |
+| `tag_timeout` | 4.0 | 丢 tag 多久进入盲走 (s) |
+
+> `prepare_arrival_thresh` 未在 yaml 声明, 默认 0.10m。需修改在 mission_params.yaml 加一行即可覆盖。
+
+### TURN — IMU 转向
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `turn_yaw_rate` | 0.5 | 转向角速度 (rad/s) |
+| `turn_tolerance` | 0.05 | 转向完成阈值 (rad ≈ 2.9°) |
+| `turn_timeout` | 15.0 | 转向超时 (s) |
+| `turn_settle_time` | 0.3 | 转向前静置, 等 IMU 滤波填满 (s) |
+| `turn_kp_yaw` | 1.0 | 转向 P 增益 |
+| `turn_sign` | 1 | 1=正常, -1=左右互换 |
+
+### BLIND_APPROACH — 盲走
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `blind_vx` | 0.1 | 盲走线速度 (m/s) |
+| `blind_approach_timeout` | 10.0 | 盲走超时 (s) |
+| `kp_yaw` | 0.5 | 盲走航向保持 P 增益 |
+| `max_angular_vel` | 0.5 | 盲走最大角速度 (rad/s) |
+
+### DRIVE_FORWARD — 盲走前进
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `forward_vx` | 0.15 | 前进速度 (m/s) |
+| `forward_timeout` | 30.0 | 超时 (s) |
+
+### CORRECT_HEADING — 航向修正
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `correction_yaw_rate` | 0.3 | 搜索角速度 (rad/s) |
+| `correction_tolerance` | 0.04 | 完成阈值 (rad ≈ 2.3°) |
+| `correction_timeout` | 10.0 | 超时 (s) |
+| `correction_kp_yaw` | 1.0 | P 增益 |
+
+### 其他
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `signal_duration` | 1.0 | 信号持续时间 (s) |
+| `loop_rate` | 50.0 | 状态机频率 (Hz) |
+| `imu_filter_window` | 20 | IMU yaw 滑动窗口 (帧数) |
+
+---
+
+## 四、启动
+
+```bash
+ros2 launch robot_bringup bringup.launch.py \
+  robot_type:=parallel \
+  turn_sign:=1
+```
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `robot_type` | `parallel` | `serial` 或 `parallel` |
+| `turn_sign` | `1` | `1`=正常, `-1`=镜像 (左转↔右转互换) |
+
+---
+
+## 五、典型调参场景
+
+### 偏了还在往前冲
 
 ```yaml
-mission_id: 2    # 任务编号
-tag_id: 1        # 对应的 Tag ID
-distance: 0.82   # 最终测量距离 (m)
+# controller_params.yaml → parallel:
+yaw_decay: 0.15    # ↓ (0.3→0.15)
+x_decay: 0.08      # ↓
 ```
 
-外部控制板订阅 `/mission_signal`，根据 `mission_id` 执行对应动作：
-- `mission_id=1`: 翻越障碍
-- `mission_id=2`: 爬坡
-- `mission_id=3`: 绕杆
-# apriltag_mission_ws
+### 对准了但太慢
+
+```yaml
+yaw_decay: 0.5     # ↑
+x_decay: 0.2       # ↑
+kp_dist: 0.5       # ↑
+```
+
+### 转向转不过去
+
+```yaml
+# mission_params.yaml:
+turn_kp_yaw: 1.5      # ↑ P 增益
+turn_timeout: 20.0    # ↑ 放宽超时
+turn_tolerance: 0.08  # ↑ 放宽精度
+```
+
+### 左转右转反了
+
+```yaml
+# mission_params.yaml:
+turn_sign: -1
+```
+
+### PREPARE 卡住不进入 STOP
+
+```yaml
+# mission_params.yaml (加这行):
+prepare_arrival_thresh: 0.15   # ↑ (默认 0.10)
+```
+
+### 丢 tag 太快进盲走
+
+```yaml
+# mission_params.yaml:
+tag_timeout: 6.0   # ↑ (4.0→6.0)
+```
+
+### 旋转搜索太慢/太快
+
+```yaml
+# mission_params.yaml:
+search_forward_speed: 0.05   # ↓ 慢一点 (默认 0.08)
+search_align_kp: 0.6         # ↑ 对准更积极
+```
