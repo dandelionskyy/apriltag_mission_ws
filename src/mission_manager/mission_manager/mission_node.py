@@ -122,7 +122,8 @@ class MissionManagerNode(LifecycleNode):
             return TransitionCallbackReturn.ERROR
 
         params = {
-            'prepare_distance_offset': self.get_parameter('prepare_distance_offset').value,
+            'prepare_distance_offset':  self.get_parameter('prepare_distance_offset').value,
+            'prepare_arrival_thresh':  self.get_parameter('prepare_arrival_thresh').value,
             'tag_timeout':             self.get_parameter('tag_timeout').value,
             'search_yaw_rate':         self.get_parameter('search_yaw_rate').value,
             'blind_vx':               self.get_parameter('blind_vx').value,
@@ -244,6 +245,7 @@ class MissionManagerNode(LifecycleNode):
         # 改用 missions_file 传路径，on_configure 时直接用 yaml.safe_load 读
         self.declare_parameter('missions_file', '')
         self.declare_parameter('prepare_distance_offset', 0.3)
+        self.declare_parameter('prepare_arrival_thresh', 0.10)
         self.declare_parameter('tag_timeout', 2.0)
         self.declare_parameter('search_yaw_rate', 0.3)
         self.declare_parameter('blind_vx', 0.1)

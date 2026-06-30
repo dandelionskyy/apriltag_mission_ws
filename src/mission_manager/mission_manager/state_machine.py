@@ -436,12 +436,15 @@ class MissionStateMachine:
             self._save_tag(tag, now)
             self.blind_yaw_ref = self.imu_yaw
 
-            if self._dist_to_target(tag) < 0.03:
+            # 只检查深度距离 (不要求完美横向对准)
+            depth_err = abs(tag[1] - self.target_z)
+            arrive_thresh = self.p.get('prepare_arrival_thresh', 0.10)
+            if depth_err < arrive_thresh:
                 # 到达目标点 → STOP
-                r['action'] = self._goto(self.STOP, now)
+                r['action'] = self._goto(self.STOP, now) + f' (dz={depth_err:.2f}m)'
                 r['enable_servo'] = False
             else:
-                r['action'] = '准备中 (PREPARE)'
+                r['action'] = f'准备中 dz={depth_err:.2f}m'
         else:
             if self._tag_lost(now) and self.last_tag is not None:
                 self._start_blind(now)
