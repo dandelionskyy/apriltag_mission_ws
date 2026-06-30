@@ -80,6 +80,7 @@ class MissionManagerNode(LifecycleNode):
         self._tag = None                   # (x, z, yaw, id) 或 None
         self._tag_new = False
         self._imu_yaw = 0.0
+        self._last_imu_time = None        # 用于角速度积分
 
         # 发布者 & 订阅者 & 服务客户端
         self._pub_cmd = None
@@ -326,10 +327,21 @@ class MissionManagerNode(LifecycleNode):
         self._tag_new = True
 
     def _cb_imu(self, msg: Imu):
-        self._imu_yaw = _yaw_from_quat(
-            msg.orientation.x, msg.orientation.y,
-            msg.orientation.z, msg.orientation.w,
-        )
+        # 优先使用 orientation (融合后的姿态), 若无效则积分角速度
+        q = msg.orientation
+        has_orientation = not (abs(q.x) < 1e-9 and abs(q.y) < 1e-9
+                               and abs(q.z) < 1e-9 and abs(q.w - 1.0) < 1e-9)
+        if has_orientation:
+            self._imu_yaw = _yaw_from_quat(q.x, q.y, q.z, q.w)
+        else:
+            # Livox 等设备只给角速度, 自己积分
+            now = time.monotonic()
+            if self._last_imu_time is not None:
+                dt = now - self._last_imu_time
+                # 忽略异常大的 dt (>0.5s 认为是重启/丢帧, 不积分)
+                if 0.0 < dt < 0.5:
+                    self._imu_yaw += msg.angular_velocity.z * dt
+            self._last_imu_time = now
 
     # ===================================================================
     # 控制循环
