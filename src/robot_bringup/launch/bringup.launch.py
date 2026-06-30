@@ -26,7 +26,7 @@ def generate_launch_description():
 
     # -- 启动参数 --
     robot_type_arg = DeclareLaunchArgument(
-        'robot_type', default_value='serial',
+        'robot_type', default_value='parallel',
         description='机器人类型: "serial" (串联腿) 或 "parallel" (并联腿)'
     )
 
