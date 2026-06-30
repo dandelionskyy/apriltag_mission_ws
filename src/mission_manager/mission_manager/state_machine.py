@@ -397,14 +397,19 @@ class MissionStateMachine:
                 r['enable_servo'] = True
                 return
 
-            r['cmd_wz'] = max(-max_w, min(max_w, -kp * tag[0]))
-            r['action'] = f'对准中... x={tag[0]:.2f}m'
+            # 边前进边对准: Vx被横向偏差压低, Wz旋转对中
+            damping = 1.0 / (1.0 + abs(tag[0]) / 0.15)
+            r['cmd_vx'] = self.p.get('search_forward_speed', 0.08) * damping
+            r['cmd_wz'] = max(-max_w, min(max_w, kp * tag[0]))
+            r['action'] = f'对准中... x={tag[0]:.2f}m Vx={r["cmd_vx"]:.2f} Wz={r["cmd_wz"]:.2f}'
             return
 
         if not self._tag_lost(now) and self.last_tag is not None:
             # Tag 短暂丢帧 → 用记忆延续对中 (但不进 TRACK)
-            r['cmd_wz'] = max(-max_w, min(max_w, -kp * self.last_tag[0]))
-            r['action'] = f'对准中(记忆) x={self.last_tag[0]:.2f}m'
+            damping = 1.0 / (1.0 + abs(self.last_tag[0]) / 0.15)
+            r['cmd_vx'] = self.p.get('search_forward_speed', 0.08) * damping
+            r['cmd_wz'] = max(-max_w, min(max_w, kp * self.last_tag[0]))
+            r['action'] = f'对准中(记忆) x={self.last_tag[0]:.2f}m Vx={r["cmd_vx"]:.2f} Wz={r["cmd_wz"]:.2f}'
             return
 
         # Tag 彻底丢失 → 低速前进
