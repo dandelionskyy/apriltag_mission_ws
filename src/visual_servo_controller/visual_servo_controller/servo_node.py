@@ -11,7 +11,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from apriltag_interfaces.msg import TagPose
-from .control_laws import SerialControlLaw, ParallelControlLaw
+from .control_laws import SerialControlLaw, ParallelControlLaw, CorrectionLaw
 
 try:
     from scipy.spatial.transform import Rotation
@@ -63,14 +63,16 @@ class VisualServoNode(Node):
             kp_yaw  = self.get_parameter('parallel.kp_yaw').value
             kp_x    = self.get_parameter('parallel.kp_x').value
             kp_dist = self.get_parameter('parallel.kp_dist').value
-            align_t = self.get_parameter('parallel.align_threshold').value
-            yaw_t   = self.get_parameter('parallel.align_yaw_threshold').value
-            self.law = ParallelControlLaw(
-                kp_yaw, kp_x, kp_dist, align_t, yaw_t, max_v, max_w
+            yaw_decay = self.get_parameter('parallel.yaw_decay').value
+            x_decay   = self.get_parameter('parallel.x_decay').value
+            self.law = CorrectionLaw(
+                kp_yaw, kp_x, kp_dist, yaw_decay, x_decay, max_v, max_w
             )
+            self.law.target_x = self.get_parameter('target_x').value
             self.get_logger().info(
-                f'使用 ParallelControlLaw: '
-                f'kp_yaw={kp_yaw}, kp_x={kp_x}, kp_dist={kp_dist}'
+                f'使用 CorrectionLaw (边移动边修正): '
+                f'kp_yaw={kp_yaw}, kp_x={kp_x}, kp_dist={kp_dist}, '
+                f'yaw_decay={yaw_decay}, x_decay={x_decay}'
             )
 
         else:
@@ -116,9 +118,10 @@ class VisualServoNode(Node):
         self.declare_parameter('parallel.kp_yaw', 1.0)
         self.declare_parameter('parallel.kp_x', 0.4)
         self.declare_parameter('parallel.kp_dist', 0.3)
-        self.declare_parameter('parallel.align_threshold', 0.06)
-        self.declare_parameter('parallel.align_yaw_threshold', 0.15)
+        self.declare_parameter('parallel.yaw_decay', 0.3)
+        self.declare_parameter('parallel.x_decay', 0.15)
         self.declare_parameter('target_distance', 0.5)
+        self.declare_parameter('target_x', 0.0)
         self.declare_parameter('max_linear_vel', 0.2)
         self.declare_parameter('max_angular_vel', 0.5)
         self.declare_parameter('enable', True)
@@ -135,6 +138,9 @@ class VisualServoNode(Node):
                 self.get_logger().info(f'target_distance → {self.target_dist}')
                 if self.robot_type == 'parallel':
                     self.law.reset()
+            elif p.name == 'target_x':
+                self.law.target_x = p.value
+                self.get_logger().info(f'target_x → {self.law.target_x}')
         from rcl_interfaces.msg import SetParametersResult
         return SetParametersResult(successful=True)
 

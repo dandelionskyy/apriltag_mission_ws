@@ -9,8 +9,8 @@
       kp_yaw: 1.0
       kp_x: 0.4
       kp_dist: 0.3
-      align_threshold: 0.06
-      align_yaw_threshold: 0.15
+      yaw_decay: 0.3        # yaw 阻尼衰减系数 (rad): e_yaw达到此值时阻尼≈0.37
+      x_decay: 0.15          # 横向阻尼衰减系数 (m): e_x达到此值时阻尼≈0.37
     target_distance: 0.5
     max_linear_vel: 0.2
     max_angular_vel: 0.5

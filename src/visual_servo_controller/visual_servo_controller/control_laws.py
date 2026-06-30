@@ -148,3 +148,66 @@ class ParallelControlLaw:
 
         vx = np.clip(self.kp_dist * e_z, -self.max_v, self.max_v)
         return float(vx), 0.0
+
+
+class CorrectionLaw:
+    """
+    并联腿边移动边修正控制律。
+
+    单模式, 每周期同时输出 Vx 和 Wz, 不分阶段:
+
+      e_yaw = tag_yaw
+      e_x   = tag_x + target_x       ← target_x 为目标点横向偏置
+      e_z   = tag_z - target_z
+
+      damping = exp(-|e_yaw| / yaw_decay) * exp(-|e_x| / x_decay)
+      Vx = clip(kp_dist * e_z * damping,  -max_v, max_v)
+      Wz = clip(kp_yaw * e_yaw + kp_x * e_x, -max_w, max_w)
+
+    damping 作用: 偏差大时 Vx 被压低, 优先旋转对准;
+                  偏差小时 Vx 恢复, 边前进边微调。
+    """
+
+    _STATE_NAME = 'CORRECT'
+
+    def __init__(self, kp_yaw, kp_x, kp_dist,
+                 yaw_decay, x_decay, max_v, max_w):
+        self.kp_yaw = kp_yaw
+        self.kp_x = kp_x
+        self.kp_dist = kp_dist
+        self.yaw_decay = yaw_decay          # yaw 阻尼衰减系数 (rad)
+        self.x_decay = x_decay              # 横向阻尼衰减系数 (m)
+        self.max_v = max_v
+        self.max_w = max_w
+        self.target_x = 0.0                 # 外部可改写
+
+    def reset(self):
+        """接口兼容 ParallelControlLaw, 无状态可重置"""
+        pass
+
+    @property
+    def state_name(self):
+        return self._STATE_NAME
+
+    def compute(self, tag_x, tag_z, tag_yaw, target_dist):
+        """
+        输入 Tag 的 x/z/yaw + 目标距离, 输出 (vx, wz, ...)
+
+        返回: (vx, wz, changed, state_name, e_x, e_yaw, e_z)
+               changed 始终为 False (无状态切换)
+        """
+        import math
+
+        e_yaw = tag_yaw
+        e_x = tag_x + self.target_x
+        e_z = tag_z - target_dist
+
+        # 阻尼: 偏差越大 Vx 越低, 优先对准
+        damp_yaw = math.exp(-abs(e_yaw) / self.yaw_decay) if self.yaw_decay > 0 else 1.0
+        damp_x = math.exp(-abs(e_x) / self.x_decay) if self.x_decay > 0 else 1.0
+        damping = damp_yaw * damp_x
+
+        vx = np.clip(self.kp_dist * e_z * damping, -self.max_v, self.max_v)
+        wz = np.clip(self.kp_yaw * e_yaw + self.kp_x * e_x, -self.max_w, self.max_w)
+
+        return float(vx), float(wz), False, self._STATE_NAME, e_x, e_yaw, e_z
