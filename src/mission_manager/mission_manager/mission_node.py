@@ -193,6 +193,15 @@ class MissionManagerNode(LifecycleNode):
     def on_activate(self, state: State) -> TransitionCallbackReturn:
         self.get_logger().info('on_activate() — 启动控制循环')
 
+        # 跳到指定任务 (1-based, 0=从头开始)
+        start = self.get_parameter('start_mission').value
+        if start > 0:
+            idx = start - 1
+            if idx < len(self.sm.missions):
+                self.sm.mission_idx = idx
+                self.sm._load_mission()
+                self.get_logger().info(f'从 mission_id={self.sm.mission_id} 开始 (第{start}个)')
+
         # 重置状态机
         self.sm.state = MissionStateMachine.SEARCH_TAG
         self.sm.state_enter_time = None
@@ -255,6 +264,7 @@ class MissionManagerNode(LifecycleNode):
         self.declare_parameter('max_angular_vel', 0.5)
         self.declare_parameter('signal_duration', 1.0)
         self.declare_parameter('loop_rate', 50.0)
+        self.declare_parameter('start_mission', 0)   # 0=从头, 1=第1个, 2=第2个...
         # 转向参数
         self.declare_parameter('turn_yaw_rate', 0.5)
         self.declare_parameter('turn_tolerance', 0.05)
