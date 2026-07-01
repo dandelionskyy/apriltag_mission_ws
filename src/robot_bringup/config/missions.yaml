@@ -7,6 +7,14 @@
 #   forward          - 盲走前进, distance: 前进距离 (m)
 #   correct_heading  - AprilTag 航向修正, tag_id: 用于修正的 Tag
 #
+# 目标点 (tag 坐标系, 面向 tag):
+#        tag
+#       ┌───┐
+#       │   │ → +X (右): target_x
+#       └───┘
+#         │
+#         ▼ +Z (前): target_z
+#
 # 外部控制板根据 mission_id 查表决定障碍类型:
 #   mission_id=2 → HIGH_WALL, mission_id=3 → STAIR,
 #   mission_id=7 → SLOPE, 等
@@ -15,7 +23,8 @@ missions:
   # ---- 任务 1: 走向 tag_id=0, 在0.1m处停下, 左传90° ----
   - mission_id: 1
     tag_id: 0
-    stop_distance: 2.1
+    target_z: 2.1
+    target_x: 0
     steps:
       - type: approach
       - type: turn
@@ -25,7 +34,8 @@ missions:
   # ---- 任务 2: 走向 tag_id=1, 在0.11m处停下, 高墙跳 (type=2) ----
   - mission_id: 2
     tag_id: 1
-    stop_distance: 0.11
+    target_z: 0.11
+    target_x: 0
     steps:
       - type: approach
       - type: signal
@@ -33,7 +43,8 @@ missions:
   # ---- 任务 3: 走向 tag_id=2, 在0.12m处停下, 楼梯跳 (type=3) ----
   - mission_id: 3
     tag_id: 2
-    stop_distance: 0.12
+    target_z: 0.12
+    target_x: 0
     steps:
       - type: approach
       - type: signal
@@ -41,7 +52,8 @@ missions:
   # ---- 任务 4: tag_id=3, 航向修正后面朝tag, 走到0.13m, 发mission ----
   - mission_id: 4
     tag_id: 3
-    stop_distance: 0.13
+    target_z: 0.13
+    target_x: 0
     steps:
       - type: correct_heading
         tag_id: 3
@@ -51,7 +63,8 @@ missions:
   # ---- 任务 5: 左传90° → 面前是 tag_id=4, 走到0.14m → 左传90° ----
   - mission_id: 5
     tag_id: 4
-    stop_distance: 0.14
+    target_z: 0.14
+    target_x: 0
     steps:
       - type: turn
         angle: -90
@@ -63,7 +76,8 @@ missions:
   # ---- 任务 6: tag_id=5 (后续加独立检测矫正), 走到0.14m → 左传90° ----
   - mission_id: 6
     tag_id: 5
-    stop_distance: 0.14
+    target_z: 0.14
+    target_x: 0
     steps:
       - type: approach
       - type: turn
@@ -73,7 +87,8 @@ missions:
   # ---- 任务 7: tag_id=6, 走到0.15m → 右转135° (斜坡SLOPE) → 前进 ----
   - mission_id: 7
     tag_id: 6
-    stop_distance: 0.15
+    target_z: 0.15
+    target_x: 0
     steps:
       - type: approach
       - type: turn
@@ -83,7 +98,8 @@ missions:
   # ---- 任务 8: tag_id=7, 朝目标点前进 ----
   - mission_id: 8
     tag_id: 7
-    stop_distance: 0.6
+    target_z: 0.6
+    target_x: 0
     steps:
       - type: approach
       - type: signal
@@ -91,7 +107,8 @@ missions:
   # ---- 任务 9: tag_id=8, 0.16m处发mission (下蹲前进) ----
   - mission_id: 9
     tag_id: 8
-    stop_distance: 0.16
+    target_z: 0.16
+    target_x: 0
     steps:
       - type: approach
       - type: signal
@@ -99,7 +116,8 @@ missions:
   # ---- 任务 10: tag_id=9, 0.17m处发mission (小跳) ----
   - mission_id: 10
     tag_id: 9
-    stop_distance: 0.17
+    target_z: 0.17
+    target_x: 0
     steps:
       - type: approach
       - type: signal
@@ -107,7 +125,8 @@ missions:
   # ---- 任务 11: tag_id=10, 0.18m → 左传45° → 发mission(跳跃) → 再右转45° ----
   - mission_id: 11
     tag_id: 10
-    stop_distance: 0.18
+    target_z: 0.18
+    target_x: 0
     steps:
       - type: approach
       - type: turn
@@ -119,7 +138,8 @@ missions:
   # ---- 任务 12: tag_id=11, 0.19m → 跳跃 → 左传45° → 前进x米 → 右转90° → 面朝 tag_id=12 ----
   - mission_id: 12
     tag_id: 11
-    stop_distance: 0.19
+    target_z: 0.19
+    target_x: 0
     steps:
       - type: approach
       - type: signal        # 跳跃
@@ -134,7 +154,8 @@ missions:
   # ---- 任务 13: tag_id=12, 走到0.20m → 左转135° → 面朝 tag_id=13 ----
   - mission_id: 13
     tag_id: 12
-    stop_distance: 0.20
+    target_z: 0.20
+    target_x: 0
     steps:
       - type: approach
       - type: turn
@@ -144,7 +165,8 @@ missions:
   # ---- 任务 14: tag_id=13, 走到0.21m → 左传45° ----
   - mission_id: 14
     tag_id: 13
-    stop_distance: 0.21
+    target_z: 0.21
+    target_x: 0
     steps:
       - type: approach
       - type: turn
@@ -154,7 +176,8 @@ missions:
   # ---- 任务 15: tag_id=14, 走到0.22m → 右转90° → 前进3m → 左传90° → 一直前进 ----
   - mission_id: 15
     tag_id: 14
-    stop_distance: 0.22
+    target_z: 0.22
+    target_x: 0
     steps:
       - type: approach
       - type: turn
