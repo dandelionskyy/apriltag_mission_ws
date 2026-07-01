@@ -141,6 +141,9 @@ class MissionStateMachine:
         # 状态进入时间
         self.state_enter_time = None
 
+        # SEARCH 对准计数器 (连续对准多少帧才进 TRACK)
+        self._align_count = 0
+
     # -------------------------------------------------------------------
     # 属性
     # -------------------------------------------------------------------
@@ -321,6 +324,8 @@ class MissionStateMachine:
         old = self.state
         self.state = new_state
         self.state_enter_time = now
+        if new_state == self.SEARCH_TAG:
+            self._align_count = 0
         return f'{old} → {new_state}'
 
     def _tag_ok(self, tag):
@@ -393,9 +398,20 @@ class MissionStateMachine:
             self._save_tag(tag, now)
 
             if abs(tag[0]) < align_thresh:
-                r['action'] = self._goto(self.TRACK_TAG, now)
-                r['enable_servo'] = True
+                self._align_count += 1
+                align_need = self.p.get('search_align_frames', 2)
+                if self._align_count >= align_need:
+                    self._align_count = 0
+                    r['action'] = self._goto(self.TRACK_TAG, now)
+                    r['enable_servo'] = True
+                    return
+                # 还没到连续帧数, 继续微调对准
+                r['cmd_vx'] = self.p.get('search_forward_speed', 0.08) * 0.5
+                r['cmd_wz'] = 0.0
+                r['action'] = f'对准确认 {self._align_count}/{align_need} x={tag[0]:.2f}m'
                 return
+            else:
+                self._align_count = 0  # 偏了, 重置
 
             # 边前进边对准: Vx被横向偏差压低, Wz旋转对中
             damping = 1.0 / (1.0 + abs(tag[0]) / 0.15)
@@ -620,6 +636,7 @@ class MissionStateMachine:
         st = self._current_step_type
         if st == self.STEP_APPROACH:
             self.state = self.SEARCH_TAG
+            self._align_count = 0
             r['action'] = f'→ 下一步: approach (tag_id={self.target_tag_id})'
         elif st == self.STEP_TURN:
             self._start_turn(now)
@@ -640,6 +657,7 @@ class MissionStateMachine:
             r['action'] = '→ 下一步: signal'
         else:
             self.state = self.SEARCH_TAG
+            self._align_count = 0
             r['action'] = f'→ 下一步: 未知类型 "{st}", 回退到 SEARCH'
 
     # ===================================================================

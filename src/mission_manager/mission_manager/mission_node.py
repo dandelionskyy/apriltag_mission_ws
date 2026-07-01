@@ -152,6 +152,7 @@ class MissionManagerNode(LifecycleNode):
             'search_align_thresh':     self.get_parameter('search_align_thresh').value,
             'search_align_kp':         self.get_parameter('search_align_kp').value,
             'search_forward_speed':    self.get_parameter('search_forward_speed').value,
+            'search_align_frames':    self.get_parameter('search_align_frames').value,
             'imu_filter_window':       self.get_parameter('imu_filter_window').value,
         }
 
@@ -205,6 +206,7 @@ class MissionManagerNode(LifecycleNode):
 
         # 重置状态机
         self.sm.state = MissionStateMachine.SEARCH_TAG
+        self.sm._align_count = 0
         self.sm.state_enter_time = None
         self.sm.last_tag = None
         self.sm.last_tag_time = None
@@ -285,6 +287,7 @@ class MissionManagerNode(LifecycleNode):
         self.declare_parameter('search_align_thresh', 0.15)
         self.declare_parameter('search_align_kp', 0.4)
         self.declare_parameter('search_forward_speed', 0.08)
+        self.declare_parameter('search_align_frames', 2)
         # IMU 滤波
         self.declare_parameter('imu_filter_window', 20)
 
