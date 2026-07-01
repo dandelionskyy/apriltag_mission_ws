@@ -92,6 +92,7 @@ class MissionManagerNode(LifecycleNode):
         self._pending_signal = None   # 待发送的 (mission_id, tag_id, distance, angle)
         self._signal_sent = False     # 本段信号是否已发送成功
         self._last_cmd_log = None     # cmd_vel 日志节流
+        self._svc_warn = None        # 服务未就绪告警节流
 
         # 远程参数客户端
         self._cli_detector = None          # → apriltag_detector/set_parameters
@@ -482,7 +483,10 @@ class MissionManagerNode(LifecycleNode):
             return
 
         if not self._cli_trigger.wait_for_service(timeout_sec=0.05):
-            return   # 服务还没起来, 下个周期重试
+            if self._svc_warn is None or (time.monotonic() - self._svc_warn) > 5.0:
+                self.get_logger().warn('/mission_signal 服务未就绪, 等待中...')
+                self._svc_warn = time.monotonic()
+            return
 
         req = TriggerMission.Request()
         req.mission_id = int(self._pending_signal[0])
