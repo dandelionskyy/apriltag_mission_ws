@@ -437,6 +437,7 @@ class MissionStateMachine:
     # -------------------------------------------------------------------
 
     def _run_track(self, r, tag, now):
+        """TRACK: 开伺服, CorrectionLaw 做边移动边修正"""
         r['enable_servo'] = True
 
         if not self._tag_ok(tag):
