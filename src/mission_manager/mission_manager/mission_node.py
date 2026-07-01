@@ -24,7 +24,7 @@ from sensor_msgs.msg import Imu
 from rcl_interfaces.srv import SetParameters
 from rcl_interfaces.msg import Parameter as ParamMsg, ParameterType, ParameterValue
 from apriltag_interfaces.msg import TagPose
-from apriltag_interfaces.srv import TriggerMission
+from msgs_pkg.srv import MissionSignal
 from .state_machine import MissionStateMachine
 
 try:
@@ -84,7 +84,7 @@ class MissionManagerNode(LifecycleNode):
 
         # 发布者 & 订阅者 & 服务客户端
         self._pub_cmd = None
-        self._cli_trigger = None     # 调用外部控制板的 TriggerMission 服务
+        self._cli_trigger = None     # 调用外部控制板的 MissionSignal 服务
         self._sub_tag = None
         self._sub_imu = None
 
@@ -169,7 +169,7 @@ class MissionManagerNode(LifecycleNode):
 
         # -- 服务客户端 (调用外部控制板) --
         self._cli_trigger = self.create_client(
-            TriggerMission, '/mission_signal'
+            MissionSignal, '/mission_signal'
         )
 
         # -- 订阅者 --
@@ -488,7 +488,7 @@ class MissionManagerNode(LifecycleNode):
                 self._svc_warn = time.monotonic()
             return
 
-        req = TriggerMission.Request()
+        req = MissionSignal.Request()
         req.mission_id = int(self._pending_signal[0])
         req.tag_id     = int(self._pending_signal[1])
         req.distance   = float(self._pending_signal[2])
