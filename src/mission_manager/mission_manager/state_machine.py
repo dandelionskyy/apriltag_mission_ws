@@ -217,8 +217,8 @@ class MissionStateMachine:
 
     @property
     def target_distance(self):
-        """到目标点的欧氏距离 = sqrt(target_x² + target_z²)"""
-        return math.sqrt(self.target_x ** 2 + self.target_z ** 2)
+        """到目标点的深度距离 = target_z (伺服用纯深度做 e_z)"""
+        return self.target_z
 
     # -------------------------------------------------------------------
     # 外部接口
